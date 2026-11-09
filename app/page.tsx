@@ -1,3 +1,5 @@
+import SiteHeader from "@/components/SiteHeader";
+
 const steps = [
   {
     title: "It learns your rhythm",
@@ -48,14 +50,7 @@ const reasons = [
 export default function Home() {
   return (
     <>
-      <header>
-        <div className="wrap">
-          <div className="logo">
-            <span className="logo-mark" aria-hidden="true"></span>Selfwind Planner
-          </div>
-          <span className="badge">In development</span>
-        </div>
-      </header>
+      <SiteHeader />
 
       <main>
         <div className="wrap hero">
