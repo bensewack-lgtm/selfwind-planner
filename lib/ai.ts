@@ -1,10 +1,12 @@
 import "server-only";
 import Anthropic from "@anthropic-ai/sdk";
-import { betaZodOutputFormat } from "@anthropic-ai/sdk/helpers/beta/zod";
+import { zodOutputFormat } from "@anthropic-ai/sdk/helpers/zod";
 import { z } from "zod";
 import { dateContext, isProblem, MAX_ITEMS, normalizeItem, type QuickItem, type RawItem } from "./quick-add";
+import { parseWithRules } from "./rule-parser";
 
-const MODEL = "claude-opus-5-5";
+// Haiku: fast and very cheap (about $0.0007 per message), plenty for this.
+const MODEL = "claude-haiku-5-5";
 
 const ItemSchema = z.object({
   kind: z.enum(["event", "task", "commitment"]),
@@ -47,22 +49,20 @@ Rules:
 - Fill every field; use null for fields that don't apply to that kind.
 - If part of the message is too vague to place on a calendar (no day at all, for example), leave it out and briefly say what was unclear in "unclear" (one short sentence addressed to the student). Otherwise set "unclear" to null.`;
 
-export class QuickAddError extends Error {}
+export type QuickAddSource = "ai" | "basic";
 
-export async function readQuickAdd(text: string, now: number, timeZone: string): Promise<{ items: QuickItem[]; problems: string[] }> {
-  if (!process.env.ANTHROPIC_API_KEY) {
-    throw new QuickAddError("Quick add isn't switched on yet: the site is missing its ANTHROPIC_API_KEY.");
-  }
-  const client = new Anthropic({ timeout: 60_000, maxRetries: 1 });
+export function aiAvailable(): boolean {
+  return Boolean(process.env.ANTHROPIC_API_KEY);
+}
 
-  let response;
+/** Ask Claude Haiku. Returns null when the AI can't be used, so the caller falls back to the free parser. */
+async function readWithAI(text: string, now: number, timeZone: string): Promise<{ items: RawItem[]; unclear: string | null } | null> {
+  const client = new Anthropic({ timeout: 30_000, maxRetries: 1 });
   try {
-    response = await client.beta.messages.parse({
+    const response = await client.messages.parse({
       model: MODEL,
       max_tokens: 16000,
-      betas: ["server-side-fallback-2026-07-01"],
-      fallbacks: "default",
-      output_config: { effort: "low", format: betaZodOutputFormat(ResultSchema) },
+      output_config: { effort: "low", format: zodOutputFormat(ResultSchema) },
       system: SYSTEM,
       messages: [
         {
@@ -71,28 +71,42 @@ export async function readQuickAdd(text: string, now: number, timeZone: string):
         },
       ],
     });
+    // Haiku has no automatic fallback model, so a decline goes to the free parser.
+    if (response.stop_reason === "refusal" || !response.parsed_output) return null;
+    return { items: response.parsed_output.items as RawItem[], unclear: response.parsed_output.unclear };
   } catch (error) {
-    if (error instanceof Anthropic.AuthenticationError) throw new QuickAddError("Quick add's API key isn't valid. Check ANTHROPIC_API_KEY.");
-    if (error instanceof Anthropic.RateLimitError) throw new QuickAddError("Quick add is busy right now. Try again in a minute.");
-    if (error instanceof Anthropic.APIConnectionError) throw new QuickAddError("Couldn't reach the AI service. Try again in a moment.");
-    if (error instanceof Anthropic.APIError) throw new QuickAddError("The AI service had a problem reading that. Try again.");
-    throw error;
+    if (error instanceof Anthropic.AuthenticationError) console.error("quick add: ANTHROPIC_API_KEY was rejected");
+    else if (error instanceof Anthropic.RateLimitError) console.warn("quick add: rate limited, using the basic parser");
+    else if (error instanceof Anthropic.APIConnectionError) console.warn("quick add: couldn't reach the API, using the basic parser");
+    else if (error instanceof Anthropic.APIError) console.error(`quick add: API error ${error.status}`);
+    else console.error("quick add: unexpected error", error);
+    return null;
   }
+}
 
-  if (response.stop_reason === "refusal") {
-    throw new QuickAddError("That message couldn't be processed. Try describing your plans differently.");
-  }
-  const parsed = response.parsed_output;
-  if (!parsed) throw new QuickAddError("Couldn't make sense of that. Try listing one thing per sentence with a day and time.");
+/**
+ * Read a student's message. Uses Claude Haiku when `useAI` is true and a key
+ * is configured; otherwise, or if the AI fails, the free rule-based parser.
+ */
+export async function readQuickAdd(
+  text: string,
+  now: number,
+  timeZone: string,
+  useAI: boolean,
+): Promise<{ items: QuickItem[]; problems: string[]; source: QuickAddSource }> {
+  let source: QuickAddSource = "basic";
+  let result = useAI && aiAvailable() ? await readWithAI(text, now, timeZone) : null;
+  if (result) source = "ai";
+  else result = parseWithRules(text, now);
 
   const items: QuickItem[] = [];
   const problems: string[] = [];
-  for (const raw of parsed.items.slice(0, MAX_ITEMS)) {
+  for (const raw of result.items.slice(0, MAX_ITEMS)) {
     const result = normalizeItem(raw as RawItem, now);
     if (isProblem(result)) problems.push(result.problem);
     else items.push(result);
   }
-  if (parsed.items.length > MAX_ITEMS) problems.push(`Only the first ${MAX_ITEMS} things were kept. Add the rest in another message.`);
-  if (parsed.unclear) problems.push(parsed.unclear);
-  return { items, problems };
+  if (result.items.length > MAX_ITEMS) problems.push(`Only the first ${MAX_ITEMS} things were kept. Add the rest in another message.`);
+  if (result.unclear) problems.push(result.unclear);
+  return { items, problems, source };
 }

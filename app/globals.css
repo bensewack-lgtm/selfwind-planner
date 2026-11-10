@@ -308,6 +308,26 @@ footer { padding: 32px 0 48px; color: var(--muted); font-size: 14px; border-top:
 .event-list strong { font-size: 15px; border-left: 3px solid #3c9a94; padding-left: 8px; }
 .event-list .small { padding-left: 11px; }
 
+/* Deadlines */
+.due-marker { position: absolute; left: 0; right: 0; height: 0; border-top: 2px dashed #c0392b; z-index: 3; pointer-events: auto; }
+.due-marker span {
+  position: absolute; right: 2px; top: -9px; max-width: calc(100% - 4px);
+  font-size: 10px; font-weight: 700; line-height: 16px; padding: 0 5px; border-radius: 4px;
+  background: #c0392b; color: #fff; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+.sw-due { background: transparent; border-top: 2px dashed #c0392b; height: 0; width: 14px; border-radius: 0; }
+
+/* Manual add */
+.segmented { display: inline-flex; padding: 3px; background: #efebe4; border-radius: 10px; gap: 2px; margin-bottom: 8px; }
+.segmented button {
+  font: inherit; font-size: 14px; font-weight: 600; cursor: pointer;
+  padding: 6px 16px; border: none; border-radius: 8px; background: transparent; color: var(--muted);
+}
+.segmented button.on { background: var(--card); color: var(--ink); box-shadow: 0 1px 2px rgba(0,0,0,0.08); }
+.mode-hint { margin-bottom: 12px; }
+.stack-form .check-row { flex-direction: row; align-items: center; gap: 8px; }
+.stack-form .check-row input { width: auto; accent-color: var(--accent); }
+
 /* ---------- Just type it ---------- */
 .quick-add { margin-bottom: 18px; border-color: #e6c9b5; background: linear-gradient(180deg, #fffaf6 0%, var(--card) 100%); }
 .quick-add-head { margin-bottom: 12px; }

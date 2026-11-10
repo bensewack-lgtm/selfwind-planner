@@ -2,7 +2,7 @@ import type { Metadata } from "next";
 import Link from "next/link";
 import { redirect } from "next/navigation";
 import { completeTask, deleteEvent, deleteTask, setBlockStatus } from "@/app/actions/planner";
-import { TaskForm } from "@/components/PlannerForms";
+import { ManualAdd } from "@/components/PlannerForms";
 import QuickAdd from "@/components/QuickAdd";
 import SiteHeader from "@/components/SiteHeader";
 import WeekView from "@/components/WeekView";
@@ -65,12 +65,14 @@ export default async function PlannerPage() {
                 commitments={data.commitments}
                 blocks={blocks}
                 events={data.events}
+                deadlines={tasks.map((t) => ({ id: t.id, title: t.title, due: t.due }))}
               />
             )}
             <div className="legend">
               <span><i className="sw sw-fixed" />Classes &amp; commitments</span>
               <span><i className="sw sw-event" />Events</span>
-              <span><i className="sw sw-task" />Study sessions</span>
+              <span><i className="sw sw-task" />Study sessions Selfwind planned</span>
+              <span><i className="sw sw-due" />Assignment due</span>
               <span><i className="sw sw-done" />Done</span>
               <span><i className="sw sw-missed" />Missed (rescheduled)</span>
             </div>
@@ -82,8 +84,8 @@ export default async function PlannerPage() {
             <EventsPanel data={data} />
 
             <section className="panel">
-              <h2 className="panel-title">Add an assignment</h2>
-              <TaskForm defaultDue={defaultDue} />
+              <h2 className="panel-title">Add it yourself</h2>
+              <ManualAdd defaultDue={defaultDue} defaultDate={toLocalString(today + DAY).slice(0, 10)} />
             </section>
 
             <section className="panel">

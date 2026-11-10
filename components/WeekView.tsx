@@ -1,5 +1,7 @@
 import type { BlockView, CommitmentRow, EventView } from "@/lib/planner";
-import { DAY, dayOfWeek, formatClock, formatDay, formatRange, minuteOfDay, startOfDay } from "@/lib/time";
+import { DAY, dayOfWeek, formatClock, formatDay, formatDue, formatRange, minuteOfDay, startOfDay } from "@/lib/time";
+
+type Deadline = { id: string; title: string; due: number };
 
 const PX_PER_MIN = 0.8;
 
@@ -10,6 +12,7 @@ export default function WeekView({
   commitments,
   blocks,
   events,
+  deadlines,
 }: {
   now: number;
   dayStart: number;
@@ -17,7 +20,9 @@ export default function WeekView({
   commitments: CommitmentRow[];
   blocks: BlockView[];
   events: EventView[];
+  deadlines: Deadline[];
 }) {
+  const dueById = new Map(deadlines.map((d) => [d.id, d.due]));
   const today = startOfDay(now);
   const days = Array.from({ length: 7 }, (_, i) => today + i * DAY);
   const weekBlocks = blocks.filter((b) => b.start >= today && b.start < today + 7 * DAY);
@@ -46,6 +51,11 @@ export default function WeekView({
       from = Math.min(from, e.segStart - d);
       to = Math.max(to, e.segEnd - d);
     }
+  }
+  const weekDeadlines = deadlines.filter((t) => t.due >= today && t.due < today + 7 * DAY);
+  for (const t of weekDeadlines) {
+    from = Math.min(from, minuteOfDay(t.due));
+    to = Math.max(to, minuteOfDay(t.due) + 1);
   }
   from = Math.floor(from / 60) * 60;
   to = Math.min(1440, Math.ceil(to / 60) * 60);
@@ -129,13 +139,27 @@ export default function WeekView({
                         key={`b${b.id}`}
                         className={`ev ev-task ${cls}`}
                         style={{ top: y(minuteOfDay(b.start)), height: (b.end - b.start) * PX_PER_MIN }}
-                        title={`${b.title} · ${formatRange(b.start, b.end)}${b.status !== "planned" ? ` · ${b.status}` : ""}`}
+                        title={`Work session: ${b.title} · ${formatRange(b.start, b.end)}${
+                          dueById.has(b.taskId) ? ` · due ${formatDue(dueById.get(b.taskId)!, now)}` : ""
+                        }${b.status !== "planned" ? ` · ${b.status}` : ""}`}
                       >
                         <strong>{b.title}</strong>
                         <span>{formatRange(b.start, b.end)}</span>
                       </div>
                     );
                   })}
+                {weekDeadlines
+                  .filter((t) => startOfDay(t.due) === d)
+                  .map((t) => (
+                    <div
+                      key={`d${t.id}`}
+                      className="due-marker"
+                      style={{ top: y(minuteOfDay(t.due)) }}
+                      title={`${t.title} is due ${formatClock(minuteOfDay(t.due))}`}
+                    >
+                      <span>Due {formatClock(minuteOfDay(t.due))}: {t.title}</span>
+                    </div>
+                  ))}
                 {i === 0 && nowY >= 0 && nowY <= height && <div className="now-line" style={{ top: nowY }} />}
               </div>
             );

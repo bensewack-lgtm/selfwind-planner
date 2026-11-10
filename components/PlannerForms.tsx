@@ -1,7 +1,7 @@
 "use client";
 
 import { useActionState, useEffect, useRef, useState } from "react";
-import { addCommitment, addTask, savePreferences, type FormState } from "@/app/actions/planner";
+import { addCommitment, addEvent, addTask, savePreferences, type FormState } from "@/app/actions/planner";
 
 function Message({ state }: { state: FormState }) {
   if (state?.error) return <p className="form-error" role="alert">{state.error}</p>;
@@ -16,6 +16,71 @@ function useResetOnSuccess(state: FormState) {
     if (state?.ok) ref.current?.reset();
   }, [state]);
   return ref;
+}
+
+/** Manual add: an event at an exact time, or an assignment Selfwind schedules work for. */
+export function ManualAdd({ defaultDue, defaultDate }: { defaultDue: string; defaultDate: string }) {
+  const [mode, setMode] = useState<"event" | "task">("event");
+  return (
+    <div className="manual-add">
+      <div className="segmented" role="radiogroup" aria-label="What are you adding?">
+        <button type="button" role="radio" aria-checked={mode === "event"} className={mode === "event" ? "on" : ""} onClick={() => setMode("event")}>
+          Event
+        </button>
+        <button type="button" role="radio" aria-checked={mode === "task"} className={mode === "task" ? "on" : ""} onClick={() => setMode("task")}>
+          Assignment
+        </button>
+      </div>
+      <p className="hint mode-hint">
+        {mode === "event"
+          ? "Something at a set time, like an appointment, game or exam. It goes on your calendar exactly when you say."
+          : "Work due by a deadline. Selfwind plans study sessions before it, and the deadline shows as a red “Due” marker."}
+      </p>
+      {mode === "event" ? <EventForm defaultDate={defaultDate} /> : <TaskForm defaultDue={defaultDue} />}
+    </div>
+  );
+}
+
+function EventForm({ defaultDate }: { defaultDate: string }) {
+  const [state, action, pending] = useActionState(addEvent, undefined);
+  const ref = useResetOnSuccess(state);
+  const [allDay, setAllDay] = useState(false);
+  return (
+    <form ref={ref} action={action} className="stack-form">
+      <label>
+        Event
+        <input name="title" placeholder="e.g. Dentist appointment" maxLength={120} required />
+      </label>
+      <label>
+        Date
+        <input name="date" type="date" defaultValue={defaultDate} required />
+      </label>
+      <label className="check-row">
+        <input type="checkbox" name="allDay" checked={allDay} onChange={(e) => setAllDay(e.target.checked)} />
+        All day
+      </label>
+      {!allDay && (
+        <div className="form-row">
+          <label>
+            Starts
+            <input name="start" type="time" defaultValue="15:00" required />
+          </label>
+          <label>
+            Ends
+            <input name="end" type="time" defaultValue="16:00" />
+          </label>
+        </div>
+      )}
+      <label>
+        Where <span className="hint">(optional)</span>
+        <input name="location" placeholder="e.g. Rec Hall" maxLength={120} />
+      </label>
+      <Message state={state} />
+      <button className="btn btn-primary" type="submit" disabled={pending}>
+        {pending ? "Adding…" : "Add event"}
+      </button>
+    </form>
+  );
 }
 
 export function TaskForm({ defaultDue }: { defaultDue: string }) {
@@ -33,7 +98,7 @@ export function TaskForm({ defaultDue }: { defaultDue: string }) {
           <input name="due" type="datetime-local" defaultValue={defaultDue} required />
         </label>
         <label className="narrow">
-          Hours
+          Hours of work
           <input name="hours" type="number" min="0.25" max="100" step="0.25" defaultValue="2" required />
         </label>
       </div>

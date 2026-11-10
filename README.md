@@ -62,6 +62,24 @@ how they like to work, then adds assignments with a due date and an estimate.
 - **Plans:** the free plan schedules up to 5 assignments at a time. Accounts with
   `has_paid = true` have no limit.
 
+### Just type it
+
+The box at the top of the planner turns a casual message ("dentist thursday at
+3, bio midterm next wednesday 10am, I work tues and thurs 5-9") into events,
+assignments and weekly commitments, with a preview to review before saving.
+
+- **With `ANTHROPIC_API_KEY` set** (Vercel env vars and `.env.local`), it uses
+  Claude Haiku 5.5 (`lib/ai.ts`), at roughly $0.0007 per message. Each account
+  gets 20 AI reads a day on the free plan, 100 on paid.
+- **Without a key, past the daily limit, or if the API is unavailable**, it falls
+  back to a free built-in parser (`lib/rule-parser.ts`, using chrono-node), which
+  handles everyday phrasing but not rambling messages.
+- Exams also get a "Study for…" assignment due when the exam starts.
+
+The manual "Add it yourself" form has two modes: **Event** (placed exactly at
+the date and time given) and **Assignment** (Selfwind schedules work sessions
+before the deadline, shown on the calendar as a red "Due" marker).
+
 ### Demo data
 
 ```bash

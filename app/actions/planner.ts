@@ -2,7 +2,7 @@
 
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
-import { QuickAddError, readQuickAdd } from "@/lib/ai";
+import { aiAvailable, readQuickAdd, type QuickAddSource } from "@/lib/ai";
 import { sql } from "@/lib/db";
 import { FREE_TASK_LIMIT, getPrefs } from "@/lib/planner";
 import { isProblem, MAX_INPUT_CHARS, MAX_ITEMS, validateItem, type QuickItem } from "@/lib/quick-add";
@@ -159,7 +159,7 @@ export async function deleteTask(fd: FormData) {
 const DAILY_QUICK_ADDS = { free: 20, paid: 100 };
 
 export type QuickAddState =
-  | { stage: "preview"; text: string; items: QuickItem[]; problems: string[]; now: number }
+  | { stage: "preview"; text: string; items: QuickItem[]; problems: string[]; now: number; source: QuickAddSource }
   | { stage: "error"; text: string; error: string }
   | { stage: "saved"; message: string }
   | undefined;
@@ -176,28 +176,26 @@ export async function previewQuickAdd(_prev: QuickAddState, fd: FormData): Promi
     return { stage: "error", text, error: `That's a lot! Keep it under ${MAX_INPUT_CHARS} characters and send the rest separately.` };
   }
 
-  if (!process.env.ANTHROPIC_API_KEY) {
-    return { stage: "error", text, error: "Quick add isn't switched on yet: the site is missing its ANTHROPIC_API_KEY." };
+  // AI requests are limited per day to keep costs predictable. Past the limit
+  // (or with no API key) the free parser takes over, so it always works.
+  let useAI = aiAvailable();
+  if (useAI) {
+    const limit = user.hasPaid ? DAILY_QUICK_ADDS.paid : DAILY_QUICK_ADDS.free;
+    const [{ n }] = await sql()`
+      SELECT count(*)::int AS n FROM quick_adds WHERE user_id = ${user.id} AND created_at > now() - interval '1 day'
+    `;
+    if (n >= limit) useAI = false;
+    else await sql()`INSERT INTO quick_adds (user_id) VALUES (${user.id})`;
   }
-
-  const limit = user.hasPaid ? DAILY_QUICK_ADDS.paid : DAILY_QUICK_ADDS.free;
-  const [{ n }] = await sql()`
-    SELECT count(*)::int AS n FROM quick_adds WHERE user_id = ${user.id} AND created_at > now() - interval '1 day'
-  `;
-  if (n >= limit) {
-    return { stage: "error", text, error: `You've used today's ${limit} quick adds. You can still add things with the form below.` };
-  }
-  await sql()`INSERT INTO quick_adds (user_id) VALUES (${user.id})`;
 
   const now = nowLocal(prefs.tz);
   try {
-    const { items, problems } = await readQuickAdd(text, now, prefs.tz);
+    const { items, problems, source } = await readQuickAdd(text, now, prefs.tz, useAI);
     if (items.length === 0) {
-      return { stage: "error", text, error: problems[0] ?? "Didn't find anything to add. Try including a day and time." };
+      return { stage: "error", text, error: problems[0] ?? "Didn't find anything to add. Try including a day, like “dentist Thursday at 3”." };
     }
-    return { stage: "preview", text, items, problems, now };
+    return { stage: "preview", text, items, problems, now, source };
   } catch (error) {
-    if (error instanceof QuickAddError) return { stage: "error", text, error: error.message };
     console.error("quick add failed", error);
     return { stage: "error", text, error: "Something went wrong reading that. Try again." };
   }
@@ -267,6 +265,47 @@ export async function confirmQuickAdd(_prev: QuickAddState, fd: FormData): Promi
     count("commitment") && `${count("commitment")} weekly commitment${count("commitment") === 1 ? "" : "s"}`,
   ].filter(Boolean);
   return { stage: "saved", message: `Added ${parts.join(", ")} and rebuilt your week.` };
+}
+
+/** Manual "Event" form: something at a fixed date and time, placed exactly there. */
+export async function addEvent(_prev: FormState, fd: FormData): Promise<FormState> {
+  const user = await requireUser();
+  const prefs = await getPrefs(user.id);
+  if (!prefs) redirect("/planner/setup");
+
+  const title = str(fd, "title").slice(0, 120);
+  const date = str(fd, "date");
+  const allDay = fd.get("allDay") === "on";
+  const location = str(fd, "location").slice(0, 120) || null;
+  if (!title) return { error: "What's the event called?" };
+
+  let day: number;
+  try {
+    day = parseLocal(`${date}T00:00`);
+  } catch {
+    return { error: "Pick a date." };
+  }
+
+  let start = day;
+  let end = day + 24 * 60;
+  if (!allDay) {
+    const s = hhmmToMinutes(str(fd, "start"));
+    if (s === null) return { error: "Pick a start time, or tick “All day”." };
+    const e = str(fd, "end") ? hhmmToMinutes(str(fd, "end")) : s + 60;
+    if (e === null) return { error: "That end time doesn't look right." };
+    start = day + s;
+    end = e > s ? day + e : day + 24 * 60 + e; // an end before the start means it runs past midnight
+  }
+
+  const checked = validateItem({ kind: "event", title, start, end, allDay, location }, nowLocal(prefs.tz));
+  if (isProblem(checked)) return { error: checked.problem };
+
+  await sql()`
+    INSERT INTO events (user_id, title, start_at, end_at, all_day, location)
+    VALUES (${user.id}, ${title}, ${toSqlTimestamp(start)}, ${toSqlTimestamp(end)}, ${allDay}, ${location})
+  `;
+  refresh();
+  return { ok: `Added “${title}” to your calendar.` };
 }
 
 export async function deleteEvent(fd: FormData) {

@@ -115,6 +115,9 @@ export default function QuickAdd() {
         <div className="quick-preview">
           <p className="small">
             <strong>Here&apos;s what I found.</strong> Remove anything that&apos;s wrong, then add it.
+            {previewState.source === "basic" && (
+              <span className="muted"> (Read with the basic reader. Simple phrasing like “dentist Thursday at 3” works best.)</span>
+            )}
           </p>
           <ul className="preview-list">
             {kept.map((item, i) => (
