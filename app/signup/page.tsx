@@ -7,7 +7,7 @@ import { getCurrentUser } from "@/lib/session";
 export const metadata: Metadata = { title: "Sign up · Selfwind Planner" };
 
 export default async function SignupPage() {
-  if (await getCurrentUser()) redirect("/account");
+  if (await getCurrentUser()) redirect("/planner");
   return (
     <>
       <SiteHeader />

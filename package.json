@@ -6,7 +6,8 @@
     "dev": "next dev",
     "build": "node scripts/migrate.mjs && next build",
     "start": "next start",
-    "db:migrate": "node scripts/migrate.mjs"
+    "db:migrate": "node scripts/migrate.mjs",
+    "seed:demo": "node scripts/seed-demo.mjs"
   },
   "dependencies": {
     "@neondatabase/serverless": "^1.2.0",

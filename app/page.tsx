@@ -1,4 +1,6 @@
+import Link from "next/link";
 import SiteHeader from "@/components/SiteHeader";
+import { getCurrentUser } from "@/lib/session";
 
 const steps = [
   {
@@ -47,7 +49,8 @@ const reasons = [
   },
 ];
 
-export default function Home() {
+export default async function Home() {
+  const user = await getCurrentUser();
   return (
     <>
       <SiteHeader />
@@ -62,6 +65,22 @@ export default function Home() {
             schedule for you. You stop rebuilding your calendar every week, and your plan
             keeps itself up to date.
           </p>
+          <div className="hero-cta">
+            {user ? (
+              <Link href="/planner" className="btn btn-primary btn-lg">
+                Open my planner
+              </Link>
+            ) : (
+              <>
+                <Link href="/signup" className="btn btn-primary btn-lg">
+                  Try it free
+                </Link>
+                <Link href="/login" className="btn btn-ghost btn-lg">
+                  Log in
+                </Link>
+              </>
+            )}
+          </div>
         </div>
 
         <section>

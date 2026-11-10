@@ -63,4 +63,66 @@ await sql.query(`
 await sql`CREATE INDEX IF NOT EXISTS sessions_user_id_idx ON sessions (user_id)`;
 await sql`DELETE FROM sessions WHERE expires_at < now()`;
 
-console.log("migrate: users and sessions tables are ready.");
+// ---- Planner ----
+// Times the planner works with are the user's local wall-clock time, stored as
+// `timestamp` (no time zone). preferences.tz says which zone that is.
+
+await sql.query(`
+  CREATE TABLE IF NOT EXISTS preferences (
+    user_id       ${userIdType} PRIMARY KEY REFERENCES users(id) ON DELETE CASCADE,
+    tz            text NOT NULL DEFAULT 'America/New_York',
+    day_start_min integer NOT NULL DEFAULT 480,
+    day_end_min   integer NOT NULL DEFAULT 1320,
+    focus         text NOT NULL DEFAULT 'any' CHECK (focus IN ('any', 'morning', 'afternoon', 'evening')),
+    max_block_min integer NOT NULL DEFAULT 90,
+    break_min     integer NOT NULL DEFAULT 15,
+    updated_at    timestamptz NOT NULL DEFAULT now()
+  )
+`);
+
+// Fixed weekly commitments: classes, work shifts, practice.
+await sql.query(`
+  CREATE TABLE IF NOT EXISTS commitments (
+    id          bigint GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+    user_id     ${userIdType} NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    title       text NOT NULL,
+    day_of_week smallint NOT NULL CHECK (day_of_week BETWEEN 0 AND 6),
+    start_min   integer NOT NULL CHECK (start_min BETWEEN 0 AND 1439),
+    end_min     integer NOT NULL CHECK (end_min BETWEEN 1 AND 1440),
+    CHECK (end_min > start_min)
+  )
+`);
+await sql`CREATE INDEX IF NOT EXISTS commitments_user_idx ON commitments (user_id)`;
+
+// Assignments and other work that needs time set aside before a deadline.
+await sql.query(`
+  CREATE TABLE IF NOT EXISTS tasks (
+    id         bigint GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+    user_id    ${userIdType} NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    title      text NOT NULL,
+    due_at     timestamp NOT NULL,
+    est_min    integer NOT NULL CHECK (est_min > 0),
+    priority   smallint NOT NULL DEFAULT 2 CHECK (priority BETWEEN 1 AND 3),
+    done_at    timestamptz,
+    actual_min integer,
+    created_at timestamptz NOT NULL DEFAULT now()
+  )
+`);
+await sql`CREATE INDEX IF NOT EXISTS tasks_user_idx ON tasks (user_id)`;
+
+// Work sessions the planner schedules. 'planned' future blocks are regenerated
+// whenever the plan changes; 'done' and 'missed' blocks are kept as history.
+await sql.query(`
+  CREATE TABLE IF NOT EXISTS blocks (
+    id       bigint GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+    user_id  ${userIdType} NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    task_id  bigint NOT NULL REFERENCES tasks(id) ON DELETE CASCADE,
+    start_at timestamp NOT NULL,
+    end_at   timestamp NOT NULL,
+    status   text NOT NULL DEFAULT 'planned' CHECK (status IN ('planned', 'done', 'missed')),
+    CHECK (end_at > start_at)
+  )
+`);
+await sql`CREATE INDEX IF NOT EXISTS blocks_user_start_idx ON blocks (user_id, start_at)`;
+
+console.log("migrate: users, sessions and planner tables are ready.");

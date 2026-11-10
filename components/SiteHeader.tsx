@@ -15,11 +15,14 @@ export default async function SiteHeader() {
           <span className="badge">In development</span>
           {user ? (
             <>
+              <Link href="/planner" className="nav-link">
+                Planner
+              </Link>
               <Link href="/account" className="nav-link">
                 Account
               </Link>
               <form action={logout}>
-                <button className="btn btn-ghost" type="submit">
+                <button className="btn btn-ghost nav-logout" type="submit">
                   Log out
                 </button>
               </form>

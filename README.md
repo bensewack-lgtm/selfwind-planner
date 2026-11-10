@@ -44,6 +44,35 @@ npm run dev
 
 Open http://localhost:3000 and try **Sign up**, **Log out** and **Log in**.
 
+## The planner (v1)
+
+At `/planner`, a student sets up their fixed weekly schedule (classes, work) and
+how they like to work, then adds assignments with a due date and an estimate.
+
+- **It builds the week:** `lib/scheduler.ts` places study sessions in free time
+  before each deadline: earliest deadline first, spread across days, no session
+  shorter than 30 minutes, breaks between sessions, and preferred focus time first.
+- **It adapts:** the plan is rebuilt on every visit and after every change. Missed
+  sessions get rescheduled, finished work frees up time, and new assignments slot in.
+- **It learns:**
+  - *Pace:* after 2 finished assignments, it compares the actual hours with the
+    estimates and scales future estimates to match.
+  - *Focus time:* after 6 sessions marked done or missed, it schedules the time
+    of day you actually follow through on first.
+- **Plans:** the free plan schedules up to 5 assignments at a time. Accounts with
+  `has_paid = true` have no limit.
+
+### Demo data
+
+```bash
+npm run seed:demo
+```
+
+This fills `demo@demo.com` with a realistic student week (classes, a job,
+assignments and two weeks of history) relative to today. It replaces that
+account's planner data but leaves the login alone. Re-run it before presenting.
+Pass another email to seed a different account: `npm run seed:demo -- me@school.edu`.
+
 ## How auth works
 
 - `users`: `id`, `email` (unique, stored lowercase), `password_hash`, `has_paid` (default `false`), `created_at`.

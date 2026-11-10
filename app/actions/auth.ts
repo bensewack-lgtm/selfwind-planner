@@ -43,7 +43,7 @@ export async function signup(_prev: AuthState, formData: FormData): Promise<Auth
   }
 
   await createSession(rows[0].id);
-  redirect("/account");
+  redirect("/planner");
 }
 
 export async function login(_prev: AuthState, formData: FormData): Promise<AuthState> {
@@ -63,7 +63,7 @@ export async function login(_prev: AuthState, formData: FormData): Promise<AuthS
   if (!(await verifyPassword(password, user.password_hash))) return invalid;
 
   await createSession(user.id);
-  redirect("/account");
+  redirect("/planner");
 }
 
 export async function logout() {

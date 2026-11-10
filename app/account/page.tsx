@@ -1,4 +1,5 @@
 import type { Metadata } from "next";
+import Link from "next/link";
 import { redirect } from "next/navigation";
 import { logout } from "@/app/actions/auth";
 import SiteHeader from "@/components/SiteHeader";
@@ -22,11 +23,16 @@ export default async function AccountPage() {
             <dt>Plan</dt>
             <dd>{user.hasPaid ? "Paid" : "Free"}</dd>
           </dl>
-          <form action={logout}>
-            <button className="btn btn-ghost" type="submit">
-              Log out
-            </button>
-          </form>
+          <div className="account-actions">
+            <Link href="/planner" className="btn btn-primary">
+              Open my planner
+            </Link>
+            <form action={logout}>
+              <button className="btn btn-ghost" type="submit">
+                Log out
+              </button>
+            </form>
+          </div>
         </div>
       </main>
     </>
