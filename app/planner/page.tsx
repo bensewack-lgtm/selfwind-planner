@@ -1,8 +1,9 @@
 import type { Metadata } from "next";
 import Link from "next/link";
 import { redirect } from "next/navigation";
-import { completeTask, deleteTask, setBlockStatus } from "@/app/actions/planner";
+import { completeTask, deleteEvent, deleteTask, setBlockStatus } from "@/app/actions/planner";
 import { TaskForm } from "@/components/PlannerForms";
+import QuickAdd from "@/components/QuickAdd";
 import SiteHeader from "@/components/SiteHeader";
 import WeekView from "@/components/WeekView";
 import { FREE_TASK_LIMIT, loadPlanner, type PlannerData, type TaskView } from "@/lib/planner";
@@ -48,11 +49,13 @@ export default async function PlannerPage() {
           </div>
         </div>
 
+        <QuickAdd />
+
         <Insights data={data} plannedMin={plannedMin} sessions={weekPlanned.length} atRisk={atRisk.length} />
 
         <div className="planner-grid">
           <section className="panel week-panel" aria-label="This week">
-            {tasks.length === 0 && data.commitments.length === 0 ? (
+            {tasks.length === 0 && data.commitments.length === 0 && data.events.length === 0 ? (
               <EmptyWeek />
             ) : (
               <WeekView
@@ -61,10 +64,12 @@ export default async function PlannerPage() {
                 dayEnd={data.prefs.dayEnd}
                 commitments={data.commitments}
                 blocks={blocks}
+                events={data.events}
               />
             )}
             <div className="legend">
               <span><i className="sw sw-fixed" />Classes &amp; commitments</span>
+              <span><i className="sw sw-event" />Events</span>
               <span><i className="sw sw-task" />Study sessions</span>
               <span><i className="sw sw-done" />Done</span>
               <span><i className="sw sw-missed" />Missed (rescheduled)</span>
@@ -73,6 +78,8 @@ export default async function PlannerPage() {
 
           <aside className="side">
             <TodayPanel data={data} />
+
+            <EventsPanel data={data} />
 
             <section className="panel">
               <h2 className="panel-title">Add an assignment</h2>
@@ -204,6 +211,35 @@ function TodayPanel({ data }: { data: PlannerData }) {
           })}
         </ul>
       )}
+    </section>
+  );
+}
+
+function EventsPanel({ data }: { data: PlannerData }) {
+  const upcoming = data.events.filter((e) => e.end > data.now);
+  if (upcoming.length === 0) return null;
+  return (
+    <section className="panel">
+      <h2 className="panel-title">Coming up</h2>
+      <ul className="event-list">
+        {upcoming.map((e) => (
+          <li key={e.id}>
+            <div>
+              <strong>{e.title}</strong>
+              <span className="muted small">
+                {formatDay(e.start)} · {e.allDay ? "All day" : formatRange(e.start, e.end)}
+                {e.location ? ` · ${e.location}` : ""}
+              </span>
+            </div>
+            <form action={deleteEvent}>
+              <input type="hidden" name="id" value={e.id} />
+              <button className="btn btn-sm btn-text" type="submit" aria-label={`Delete ${e.title}`}>
+                Delete
+              </button>
+            </form>
+          </li>
+        ))}
+      </ul>
     </section>
   );
 }

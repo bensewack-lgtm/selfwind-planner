@@ -40,6 +40,7 @@ const t = (h, m = 0) => h * 60 + m;
 
 // ---- wipe this account's planner data ----
 await sql.transaction([
+  sql`DELETE FROM events WHERE user_id = ${uid}`,
   sql`DELETE FROM blocks WHERE user_id = ${uid}`,
   sql`DELETE FROM tasks WHERE user_id = ${uid}`,
   sql`DELETE FROM commitments WHERE user_id = ${uid}`,
@@ -130,5 +131,21 @@ await sql`
     (${uid}, ${activeIds["Chem problem set 7"]}, ${sqlTs(at(-1, 15, 45))}, ${sqlTs(at(-1, 16, 45))}, 'done'),
     (${uid}, ${activeIds["MATH 140 WebWork 10"]}, ${sqlTs(at(-1, 21, 0))}, ${sqlTs(at(-1, 21, 45))}, 'planned')
 `;
+
+// One-off events, the kind "Just type it" creates. Placed on days without a
+// clash, relative to today.
+const dowToday = new Date(today * 60000).getUTCDay();
+const nextDay = (dow) => ((dow - dowToday + 7) % 7) || 7; // offset to the next such weekday
+const events = [
+  ["Dentist appointment", nextDay(4), t(15, 0), t(16, 0), false, "Smile Dental"],
+  ["Intramural basketball", nextDay(0), t(19, 0), t(21, 0), false, "Rec Hall"],
+  ["Mom's birthday", nextDay(6), 0, 1440, true, null],
+];
+for (const [title, d, start, end, allDay, location] of events) {
+  await sql`
+    INSERT INTO events (user_id, title, start_at, end_at, all_day, location)
+    VALUES (${uid}, ${title}, ${sqlTs(today + d * DAY + start)}, ${sqlTs(today + d * DAY + end)}, ${allDay}, ${location})
+  `;
+}
 
 console.log(`seed: ${email} now has a full week (time zone ${TZ}). Open /planner to see it.`);

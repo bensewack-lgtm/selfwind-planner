@@ -2,8 +2,10 @@
 
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
+import { QuickAddError, readQuickAdd } from "@/lib/ai";
 import { sql } from "@/lib/db";
 import { FREE_TASK_LIMIT, getPrefs } from "@/lib/planner";
+import { isProblem, MAX_INPUT_CHARS, MAX_ITEMS, validateItem, type QuickItem } from "@/lib/quick-add";
 import { getCurrentUser, type User } from "@/lib/session";
 import { hhmmToMinutes, isValidTimeZone, nowLocal, parseLocal, toSqlTimestamp } from "@/lib/time";
 
@@ -149,6 +151,128 @@ export async function deleteTask(fd: FormData) {
   const user = await requireUser();
   const id = idFrom(fd);
   if (id) await sql()`DELETE FROM tasks WHERE id = ${id} AND user_id = ${user.id}`;
+  refresh();
+}
+
+// ---- Just type it ----
+
+const DAILY_QUICK_ADDS = { free: 20, paid: 100 };
+
+export type QuickAddState =
+  | { stage: "preview"; text: string; items: QuickItem[]; problems: string[]; now: number }
+  | { stage: "error"; text: string; error: string }
+  | { stage: "saved"; message: string }
+  | undefined;
+
+/** Step 1: read the student's text with the AI and return a preview. Nothing is saved yet. */
+export async function previewQuickAdd(_prev: QuickAddState, fd: FormData): Promise<QuickAddState> {
+  const user = await requireUser();
+  const prefs = await getPrefs(user.id);
+  if (!prefs) redirect("/planner/setup");
+
+  const text = str(fd, "text");
+  if (!text) return { stage: "error", text, error: "Type what you've got going on first." };
+  if (text.length > MAX_INPUT_CHARS) {
+    return { stage: "error", text, error: `That's a lot! Keep it under ${MAX_INPUT_CHARS} characters and send the rest separately.` };
+  }
+
+  if (!process.env.ANTHROPIC_API_KEY) {
+    return { stage: "error", text, error: "Quick add isn't switched on yet: the site is missing its ANTHROPIC_API_KEY." };
+  }
+
+  const limit = user.hasPaid ? DAILY_QUICK_ADDS.paid : DAILY_QUICK_ADDS.free;
+  const [{ n }] = await sql()`
+    SELECT count(*)::int AS n FROM quick_adds WHERE user_id = ${user.id} AND created_at > now() - interval '1 day'
+  `;
+  if (n >= limit) {
+    return { stage: "error", text, error: `You've used today's ${limit} quick adds. You can still add things with the form below.` };
+  }
+  await sql()`INSERT INTO quick_adds (user_id) VALUES (${user.id})`;
+
+  const now = nowLocal(prefs.tz);
+  try {
+    const { items, problems } = await readQuickAdd(text, now, prefs.tz);
+    if (items.length === 0) {
+      return { stage: "error", text, error: problems[0] ?? "Didn't find anything to add. Try including a day and time." };
+    }
+    return { stage: "preview", text, items, problems, now };
+  } catch (error) {
+    if (error instanceof QuickAddError) return { stage: "error", text, error: error.message };
+    console.error("quick add failed", error);
+    return { stage: "error", text, error: "Something went wrong reading that. Try again." };
+  }
+}
+
+/** Step 2: save the items the student kept. Every item is re-checked; the browser isn't trusted. */
+export async function confirmQuickAdd(_prev: QuickAddState, fd: FormData): Promise<QuickAddState> {
+  const user = await requireUser();
+  const prefs = await getPrefs(user.id);
+  if (!prefs) redirect("/planner/setup");
+
+  let incoming: unknown;
+  try {
+    incoming = JSON.parse(str(fd, "items"));
+  } catch {
+    return { stage: "error", text: "", error: "Something went wrong. Try again." };
+  }
+  if (!Array.isArray(incoming) || incoming.length === 0) return { stage: "error", text: "", error: "Nothing left to add." };
+
+  const now = nowLocal(prefs.tz);
+  const items: QuickItem[] = [];
+  for (const raw of incoming.slice(0, MAX_ITEMS)) {
+    const checked = validateItem(raw as QuickItem, now);
+    if (!isProblem(checked)) items.push(checked);
+  }
+  if (items.length === 0) return { stage: "error", text: "", error: "Those items couldn't be added. Try again." };
+
+  const newTasks = items.filter((i) => i.kind === "task");
+  if (!user.hasPaid && newTasks.length > 0) {
+    const [{ n }] = await sql()`SELECT count(*)::int AS n FROM tasks WHERE user_id = ${user.id} AND done_at IS NULL`;
+    if (n + newTasks.length > FREE_TASK_LIMIT) {
+      return {
+        stage: "error",
+        text: "",
+        error: `That would put you over the free plan's ${FREE_TASK_LIMIT} assignments (you have ${n}). Remove an assignment from the preview, or upgrade.`,
+      };
+    }
+  }
+
+  const db = sql();
+  const queries = items.flatMap((item) => {
+    switch (item.kind) {
+      case "event":
+        return [db`
+          INSERT INTO events (user_id, title, start_at, end_at, all_day, location)
+          VALUES (${user.id}, ${item.title}, ${toSqlTimestamp(item.start)}, ${toSqlTimestamp(item.end)}, ${item.allDay}, ${item.location})
+        `];
+      case "task":
+        return [db`
+          INSERT INTO tasks (user_id, title, due_at, est_min, priority)
+          VALUES (${user.id}, ${item.title}, ${toSqlTimestamp(item.due)}, ${item.estMin}, ${item.priority})
+        `];
+      case "commitment":
+        return [db`
+          INSERT INTO commitments (user_id, title, day_of_week, start_min, end_min)
+          SELECT ${user.id}, ${item.title}, d, ${item.start}, ${Math.min(item.end, 1440)} FROM unnest(${item.days}::smallint[]) AS d
+        `];
+    }
+  });
+  await db.transaction(queries);
+  refresh();
+
+  const count = (kind: QuickItem["kind"]) => items.filter((i) => i.kind === kind).length;
+  const parts = [
+    count("event") && `${count("event")} event${count("event") === 1 ? "" : "s"}`,
+    count("task") && `${count("task")} assignment${count("task") === 1 ? "" : "s"}`,
+    count("commitment") && `${count("commitment")} weekly commitment${count("commitment") === 1 ? "" : "s"}`,
+  ].filter(Boolean);
+  return { stage: "saved", message: `Added ${parts.join(", ")} and rebuilt your week.` };
+}
+
+export async function deleteEvent(fd: FormData) {
+  const user = await requireUser();
+  const id = idFrom(fd);
+  if (id) await sql()`DELETE FROM events WHERE id = ${id} AND user_id = ${user.id}`;
   refresh();
 }
 

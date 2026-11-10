@@ -50,10 +50,20 @@ export type BlockView = {
   status: "planned" | "done" | "missed";
 };
 
+export type EventView = {
+  id: string;
+  title: string;
+  start: number;
+  end: number;
+  allDay: boolean;
+  location: string | null;
+};
+
 export type PlannerData = {
   now: number;
   prefs: PlannerPrefs;
   commitments: CommitmentRow[];
+  events: EventView[]; // from the start of today through the planning window
   tasks: TaskView[];
   blocks: BlockView[]; // this week (today + 6 days), plus any past unconfirmed blocks
   pace: PaceInsight;
@@ -102,7 +112,9 @@ export async function loadPlanner(userId: string): Promise<PlannerData | null> {
   const now = nowLocal(prefs.tz);
   const nowSql = toSqlTimestamp(now);
 
-  const [commitments, taskRows, completedRows, historyRows, inProgressRows] = await Promise.all([
+  const weekStart = startOfDay(now);
+
+  const [commitments, taskRows, completedRows, historyRows, inProgressRows, eventRows] = await Promise.all([
     getCommitments(userId),
     db`
       SELECT t.id::text AS id, t.title, to_char(t.due_at, 'YYYY-MM-DD HH24:MI') AS due,
@@ -130,7 +142,24 @@ export async function loadPlanner(userId: string): Promise<PlannerData | null> {
       FROM blocks
       WHERE user_id = ${userId} AND status = 'planned' AND start_at < ${nowSql} AND end_at > ${nowSql}
     `,
+    db`
+      SELECT id::text AS id, title, all_day, location,
+             to_char(start_at, 'YYYY-MM-DD HH24:MI') AS start, to_char(end_at, 'YYYY-MM-DD HH24:MI') AS end
+      FROM events
+      WHERE user_id = ${userId} AND end_at > ${toSqlTimestamp(weekStart)}
+        AND start_at < ${toSqlTimestamp(weekStart + PLAN_DAYS * DAY)}
+      ORDER BY start_at
+    `,
   ]);
+
+  const events: EventView[] = eventRows.map((r) => ({
+    id: r.id,
+    title: r.title,
+    start: ts(r.start),
+    end: ts(r.end),
+    allDay: r.all_day,
+    location: r.location,
+  }));
 
   const pace = learnPace(completedRows.map((r) => ({ est: r.est_min, actual: r.actual_min })));
   const focus = learnFocus(historyRows.map((r) => ({ start: ts(r.start), status: r.status })));
@@ -159,7 +188,8 @@ export async function loadPlanner(userId: string): Promise<PlannerData | null> {
     prefs,
     focus: usedFocus,
     commitments,
-    busy: inProgress,
+    // Timed events are busy time; all-day ones (birthdays, holidays) aren't.
+    busy: [...inProgress, ...events.filter((e) => !e.allDay)],
     tasks: tasks.filter((t) => t.due > now).map((t) => ({ id: t.id, due: t.due, remaining: t.remaining, priority: t.priority })),
     days: PLAN_DAYS,
   });
@@ -178,7 +208,6 @@ export async function loadPlanner(userId: string): Promise<PlannerData | null> {
     `,
   ]);
 
-  const weekStart = startOfDay(now);
   const blockRows = await db`
     SELECT b.id::text AS id, b.task_id::text AS task_id, t.title,
            to_char(b.start_at, 'YYYY-MM-DD HH24:MI') AS start,
@@ -208,6 +237,7 @@ export async function loadPlanner(userId: string): Promise<PlannerData | null> {
     now,
     prefs,
     commitments,
+    events,
     tasks: tasks.map(({ remaining: _r, ...t }) => ({
       ...t,
       plannedMin: planned.filter((b) => b.taskId === t.id).reduce((n, b) => n + (b.end - b.start), 0),

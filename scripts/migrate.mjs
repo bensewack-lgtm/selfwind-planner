@@ -125,4 +125,31 @@ await sql.query(`
 `);
 await sql`CREATE INDEX IF NOT EXISTS blocks_user_start_idx ON blocks (user_id, start_at)`;
 
+// One-off events: appointments, games, exams, parties. Timed events block
+// time in the plan; all-day events are just shown on the calendar.
+await sql.query(`
+  CREATE TABLE IF NOT EXISTS events (
+    id         bigint GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+    user_id    ${userIdType} NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    title      text NOT NULL,
+    start_at   timestamp NOT NULL,
+    end_at     timestamp NOT NULL,
+    all_day    boolean NOT NULL DEFAULT false,
+    location   text,
+    created_at timestamptz NOT NULL DEFAULT now(),
+    CHECK (end_at > start_at)
+  )
+`);
+await sql`CREATE INDEX IF NOT EXISTS events_user_start_idx ON events (user_id, start_at)`;
+
+// One row per "just type it" request, for the daily limit on AI calls.
+await sql.query(`
+  CREATE TABLE IF NOT EXISTS quick_adds (
+    id         bigint GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+    user_id    ${userIdType} NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    created_at timestamptz NOT NULL DEFAULT now()
+  )
+`);
+await sql`CREATE INDEX IF NOT EXISTS quick_adds_user_time_idx ON quick_adds (user_id, created_at)`;
+
 console.log("migrate: users, sessions and planner tables are ready.");
