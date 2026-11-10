@@ -15,7 +15,10 @@ export type Prefs = {
   breakMin: number; // gap left after each session
 };
 
-export type Commitment = { day: number; start: number; end: number };
+export type Commitment = { id?: string; day: number; start: number; end: number };
+
+/** Key for one canceled occurrence of a weekly commitment: its id and that day's start. */
+export const skipKey = (commitmentId: string, dayStart: number) => `${commitmentId}|${dayStart}`;
 
 export type SchedTask = {
   id: string;
@@ -57,7 +60,14 @@ function subtract(free: Interval[], cut: Interval): Interval[] {
 }
 
 /** Open time from now until `days` days out: available hours minus commitments and busy blocks. */
-export function freeTime(now: number, days: number, prefs: Prefs, commitments: Commitment[], busy: Interval[]): Interval[] {
+export function freeTime(
+  now: number,
+  days: number,
+  prefs: Prefs,
+  commitments: Commitment[],
+  busy: Interval[],
+  skips: ReadonlySet<string> = new Set(),
+): Interval[] {
   const today = startOfDay(now);
   let free: Interval[] = [];
   for (let d = 0; d < days; d++) {
@@ -68,7 +78,8 @@ export function freeTime(now: number, days: number, prefs: Prefs, commitments: C
     const base = today + d * DAY;
     const dow = dayOfWeek(base);
     for (const c of commitments) {
-      if (c.day === dow) free = subtract(free, { start: base + c.start, end: base + c.end });
+      if (c.day !== dow || (c.id && skips.has(skipKey(c.id, base)))) continue; // canceled that day: time is free
+      free = subtract(free, { start: base + c.start, end: base + c.end });
     }
   }
   for (const b of busy) free = subtract(free, b);
@@ -89,11 +100,12 @@ export function buildSchedule(input: {
   focus: Focus;
   commitments: Commitment[];
   busy?: Interval[];
+  skips?: ReadonlySet<string>;
   tasks: SchedTask[];
   days?: number;
 }): { blocks: PlannedBlock[]; unscheduled: Record<string, number> } {
-  const { now, prefs, focus, commitments, tasks, busy = [], days = 14 } = input;
-  let free = freeTime(now, days, prefs, commitments, busy);
+  const { now, prefs, focus, commitments, tasks, busy = [], skips, days = 14 } = input;
+  let free = freeTime(now, days, prefs, commitments, busy, skips);
   const today = startOfDay(now);
   const window = focus === "any" ? null : PERIOD_WINDOWS[focus];
   const blocks: PlannedBlock[] = [];

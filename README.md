@@ -75,6 +75,13 @@ assignments and weekly commitments, with a preview to review before saving.
   back to a free built-in parser (`lib/rule-parser.ts`, using chrono-node), which
   handles everyday phrasing but not rambling messages.
 - Exams also get a "Study for…" assignment due when the exam starts.
+- Cancellations work too: "no bio lecture tomorrow" cancels that one day of the
+  class (it stays in the routine), and "dentist got cancelled" deletes the event.
+  The name is matched against the student's routine and upcoming events.
+
+Clicking anything on the calendar opens its details and notes, with **Delete
+event**, **Delete assignment**, or, for a class, **Cancel this day only** /
+**Restore** (`commitment_skips` table; the freed time goes to study sessions).
 
 The manual "Add it yourself" form has two modes: **Event** (placed exactly at
 the date and time given) and **Assignment** (Selfwind schedules work sessions

@@ -10,12 +10,14 @@ const EXAMPLES = [
   "BIOL midterm next Wednesday at 10am, it's a big one",
   "I work at the campus café every Tuesday and Thursday 5 to 9",
   "Mom's birthday Saturday, and a basketball game Sunday at 7 in the rec center",
+  "No bio lecture tomorrow, it's canceled",
 ];
 
 const KIND_LABEL: Record<QuickItem["kind"], string> = {
   event: "Event",
   task: "Assignment",
   commitment: "Every week",
+  cancel: "Cancel",
 };
 
 export default function QuickAdd() {
@@ -163,7 +165,17 @@ export default function QuickAdd() {
               Edit text
             </button>
             <button className="btn btn-primary" type="submit" disabled={saving || kept.length === 0}>
-              {saving ? "Adding…" : kept.length === 0 ? "Nothing to add" : `Add ${kept.length} to my calendar`}
+              {saving
+                ? "Saving…"
+                : kept.length === 0
+                  ? "Nothing to add"
+                  : kept.every((i) => i.kind === "cancel")
+                    ? kept.length === 1
+                      ? "Cancel it"
+                      : `Cancel these ${kept.length}`
+                    : kept.some((i) => i.kind === "cancel")
+                      ? `Make these ${kept.length} changes`
+                      : `Add ${kept.length} to my calendar`}
             </button>
           </form>
         </div>

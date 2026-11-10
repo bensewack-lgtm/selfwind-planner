@@ -4,7 +4,7 @@ import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import { aiAvailable, readQuickAdd, type QuickAddSource } from "@/lib/ai";
 import { sql } from "@/lib/db";
-import { FREE_TASK_LIMIT, getPrefs } from "@/lib/planner";
+import { FREE_TASK_LIMIT, getCancelContext, getPrefs } from "@/lib/planner";
 import { MAX_NOTES } from "@/lib/calendar-items";
 import { PLANS } from "@/lib/plans";
 import { isProblem, MAX_INPUT_CHARS, MAX_ITEMS, validateItem, type QuickItem } from "@/lib/quick-add";
@@ -84,6 +84,31 @@ export async function addCommitment(_prev: FormState, fd: FormData): Promise<For
   `;
   refresh();
   return { ok: `Added ${title}.` };
+}
+
+/** Cancel one day of a weekly class or commitment. It stays in the routine for every other week. */
+export async function skipCommitmentDay(fd: FormData) {
+  const user = await requireUser();
+  const id = idFrom(fd);
+  const date = str(fd, "date");
+  if (!id || !/^\d{4}-\d{2}-\d{2}$/.test(date)) return;
+  await sql()`
+    INSERT INTO commitment_skips (commitment_id, user_id, day)
+    SELECT id, user_id, ${date}::date FROM commitments
+    WHERE id = ${id} AND user_id = ${user.id} AND day_of_week = EXTRACT(DOW FROM ${date}::date)
+    ON CONFLICT DO NOTHING
+  `;
+  refresh();
+}
+
+/** Undo a one-day cancellation. */
+export async function restoreCommitmentDay(fd: FormData) {
+  const user = await requireUser();
+  const id = idFrom(fd);
+  const date = str(fd, "date");
+  if (!id || !/^\d{4}-\d{2}-\d{2}$/.test(date)) return;
+  await sql()`DELETE FROM commitment_skips WHERE commitment_id = ${id} AND user_id = ${user.id} AND day = ${date}::date`;
+  refresh();
 }
 
 export async function deleteCommitment(fd: FormData) {
@@ -195,7 +220,8 @@ export async function previewQuickAdd(_prev: QuickAddState, fd: FormData): Promi
 
   const now = nowLocal(prefs.tz);
   try {
-    const { items, problems, source } = await readQuickAdd(text, now, prefs.tz, useAI);
+    const ctx = await getCancelContext(user.id, now);
+    const { items, problems, source } = await readQuickAdd(text, now, prefs.tz, useAI, ctx);
     if (items.length === 0) {
       return { stage: "error", text, error: problems[0] ?? "Didn't find anything to add. Try including a day, like “dentist Thursday at 3”." };
     }
@@ -258,6 +284,19 @@ export async function confirmQuickAdd(_prev: QuickAddState, fd: FormData): Promi
           INSERT INTO commitments (user_id, title, day_of_week, start_min, end_min)
           SELECT ${user.id}, ${item.title}, d, ${item.start}, ${Math.min(item.end, 1440)} FROM unnest(${item.days}::smallint[]) AS d
         `];
+      case "cancel": {
+        if (item.target === "event") {
+          return [db`DELETE FROM events WHERE id = ${item.targetId} AND user_id = ${user.id}`];
+        }
+        // Only a class this student owns, and only on a day it actually meets.
+        const day = toSqlTimestamp(item.start).slice(0, 10);
+        return [db`
+          INSERT INTO commitment_skips (commitment_id, user_id, day)
+          SELECT id, user_id, ${day}::date FROM commitments
+          WHERE id = ${item.targetId} AND user_id = ${user.id} AND day_of_week = EXTRACT(DOW FROM ${day}::date)
+          ON CONFLICT DO NOTHING
+        `];
+      }
     }
   });
   await db.transaction(queries);
@@ -269,7 +308,12 @@ export async function confirmQuickAdd(_prev: QuickAddState, fd: FormData): Promi
     count("task") && `${count("task")} assignment${count("task") === 1 ? "" : "s"}`,
     count("commitment") && `${count("commitment")} weekly commitment${count("commitment") === 1 ? "" : "s"}`,
   ].filter(Boolean);
-  return { stage: "saved", message: `Added ${parts.join(", ")} and rebuilt your week.` };
+  const canceled = items.filter((i) => i.kind === "cancel").map((i) => `“${i.title}”`);
+  const sentences = [
+    parts.length ? `Added ${parts.join(", ")}.` : "",
+    canceled.length ? `Canceled ${canceled.join(", ")}.` : "",
+  ].filter(Boolean);
+  return { stage: "saved", message: `${sentences.join(" ")} Your week has been rebuilt.` };
 }
 
 /** Manual "Event" form: something at a fixed date and time, placed exactly there. */

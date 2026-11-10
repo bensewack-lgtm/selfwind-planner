@@ -2,14 +2,23 @@ import "server-only";
 import Anthropic from "@anthropic-ai/sdk";
 import { zodOutputFormat } from "@anthropic-ai/sdk/helpers/zod";
 import { z } from "zod";
-import { dateContext, isProblem, MAX_ITEMS, normalizeItem, type QuickItem, type RawItem } from "./quick-add";
+import {
+  cancelContextText,
+  dateContext,
+  isProblem,
+  MAX_ITEMS,
+  normalizeItem,
+  type CancelContext,
+  type QuickItem,
+  type RawItem,
+} from "./quick-add";
 import { parseWithRules } from "./rule-parser";
 
 // Haiku: fast and very cheap (about $0.0007 per message), plenty for this.
 const MODEL = "claude-haiku-5-5";
 
 const ItemSchema = z.object({
-  kind: z.enum(["event", "task", "commitment"]),
+  kind: z.enum(["event", "task", "commitment", "cancel"]),
   title: z.string(),
   date: z.string().nullable(),
   start: z.string().nullable(),
@@ -35,6 +44,7 @@ Classify each thing into exactly one kind:
 - "event": happens at a fixed date and time, once. Appointments, games, matches, meetings, parties, concerts, flights, exams and quizzes themselves, office hours on a specific day. Set date, and start and end if a time is given. Leave start and end null for all-day things like birthdays, holidays or trips without a time.
 - "task": work the student needs to get done before a deadline, at a time of their choosing. Homework, essays, projects, readings, applications, studying. Set due_date and due_time (null due_time means end of day), estimate_hours, and priority.
 - "commitment": repeats every week at the same times. Classes, a regular job shift, weekly practice, standing meetings. Set days (0 = Sunday, 1 = Monday, ..., 6 = Saturday) with start and end.
+- "cancel": something the student already has is canceled or not happening ("no bio lecture tomorrow", "my shift Thursday got cancelled", "dentist is off"). Set title to the matching name EXACTLY as it appears in their routine or events list below, date to the day it's canceled (null if they don't say: the next time it happens), and start only if they name a time to tell two of the same thing apart. Leave the other fields null. Never use "cancel" for something that isn't in their routine or events.
 
 Rules:
 - Resolve relative dates ("tomorrow", "this Friday", "next Tuesday", "the 14th") using the calendar provided. "Next <weekday>" means the first such day after today unless that is tomorrow, in which case it means the one after. Never return a date in the past unless the student clearly says so.
@@ -56,7 +66,12 @@ export function aiAvailable(): boolean {
 }
 
 /** Ask Claude Haiku. Returns null when the AI can't be used, so the caller falls back to the free parser. */
-async function readWithAI(text: string, now: number, timeZone: string): Promise<{ items: RawItem[]; unclear: string | null } | null> {
+async function readWithAI(
+  text: string,
+  now: number,
+  timeZone: string,
+  ctx: CancelContext,
+): Promise<{ items: RawItem[]; unclear: string | null } | null> {
   const client = new Anthropic({ timeout: 30_000, maxRetries: 1 });
   try {
     const response = await client.messages.parse({
@@ -67,7 +82,7 @@ async function readWithAI(text: string, now: number, timeZone: string): Promise<
       messages: [
         {
           role: "user",
-          content: `${dateContext(now)}\nTime zone: ${timeZone}\n\nThe student wrote:\n<message>\n${text}\n</message>`,
+          content: `${dateContext(now)}\nTime zone: ${timeZone}\n\n${cancelContextText(ctx, now)}\n\nThe student wrote:\n<message>\n${text}\n</message>`,
         },
       ],
     });
@@ -93,16 +108,17 @@ export async function readQuickAdd(
   now: number,
   timeZone: string,
   useAI: boolean,
+  ctx: CancelContext,
 ): Promise<{ items: QuickItem[]; problems: string[]; source: QuickAddSource }> {
   let source: QuickAddSource = "basic";
-  let result = useAI && aiAvailable() ? await readWithAI(text, now, timeZone) : null;
+  let result = useAI && aiAvailable() ? await readWithAI(text, now, timeZone, ctx) : null;
   if (result) source = "ai";
   else result = parseWithRules(text, now);
 
   const items: QuickItem[] = [];
   const problems: string[] = [];
   for (const raw of result.items.slice(0, MAX_ITEMS)) {
-    const result = normalizeItem(raw as RawItem, now);
+    const result = normalizeItem(raw as RawItem, now, ctx);
     if (isProblem(result)) problems.push(result.problem);
     else items.push(result);
   }

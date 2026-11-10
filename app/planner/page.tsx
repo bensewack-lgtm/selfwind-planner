@@ -77,6 +77,7 @@ export default async function PlannerPage({ searchParams }: { searchParams: Prom
                 blocks={blocks}
                 events={data.events}
                 deadlines={tasks.map((t) => ({ id: t.id, title: t.title, due: t.due, notes: t.notes }))}
+                skips={data.skips}
               />
             )}
             <div className="legend">

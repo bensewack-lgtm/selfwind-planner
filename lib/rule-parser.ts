@@ -32,6 +32,10 @@ const TASK = /\b(?:due|homework|hw|essay|paper|assignment|project|problem set|ps
 const EXAM = /\b(?:exam|test|quiz|midterm|final)\b/i;
 const HIGH = /\b(?:important|urgent|big|huge|worth a lot|major|asap)\b/i;
 const LOW = /\b(?:optional|minor|small|quick|if i have time)\b/i;
+const CANCEL =
+  /\b(?:cancel(?:l?ed)?|called off|no\s+(?:[\p{L}\p{N}:]+\s+){0,3}(?:class|lecture|lab|recitation|practice|shift|work|meeting)|(?:is|isn'?t|is not|got|was)\s+(?:off|cancel(?:l?ed)?)|not happening|isn'?t happening|won'?t happen|postponed|skipping|not going to)\b/iu;
+// "…, it's canceled" / "…, that got called off": a cancellation with no name of its own.
+const BARE_CANCEL = /^(?:and\s+|so\s+)?(?:it|its|it's|that|that's|which|they|it got|that got)\b/i;
 const RANGE = /\b(\d{1,2})(?::(\d{2}))?\s*(am|pm|a|p)?\s*(?:-|–|—|to|until|till)\s*(\d{1,2})(?::(\d{2}))?\s*(am|pm|a|p)?\b/i;
 const HOURS = /(?:like|about|around|maybe|~)?\s*(\d+(?:\.\d+)?)\s*(?:hours?|hrs?|h)\b/i;
 const MINUTES = /(?:like|about|around|maybe|~)?\s*(\d+)\s*(?:minutes?|mins?)\b/i;
@@ -163,7 +167,14 @@ export function parseWithRules(text: string, now: number): { items: RawItem[]; u
   const items: RawItem[] = [];
   const unclearBits: string[] = [];
 
-  for (const clause of splitClauses(text)) {
+  // Join a bare "it's canceled" onto the clause it refers to.
+  const clauses: string[] = [];
+  for (const c of splitClauses(text)) {
+    if (clauses.length && BARE_CANCEL.test(c) && CANCEL.test(c)) clauses[clauses.length - 1] += ` ${c}`;
+    else clauses.push(c);
+  }
+
+  for (const clause of clauses) {
     const days = daysIn(clause);
     // Hide time estimates ("3 hrs") from chrono, which would read them as "in 3 hours".
     const forDates = clause.replace(HOURS, " ").replace(MINUTES, " ");
@@ -184,6 +195,32 @@ export function parseWithRules(text: string, now: number): { items: RawItem[]; u
       }
     }
     const range = timeRange(clause);
+    // Cancellations: "no bio lecture tomorrow", "chem lab is canceled thursday", "dentist got called off".
+    // The name is matched against the student's routine and events later (resolveCancel).
+    const cancel = CANCEL.exec(clause);
+    if (cancel) {
+      const when = hit?.start;
+      const y = when?.get("year");
+      const mo = when?.get("month");
+      const dd = when?.get("day");
+      const name = clause
+        .replace(cancel[0], " ")
+        .replace(hit?.text ?? "", " ")
+        .replace(CANCEL, " ") // a joined "it's canceled" can repeat the phrase
+        .replace(/\b(?:it'?s|its|it|that|got|was|been|has|have|no|my|the|is|are|today|tomorrow|tonight|this week|so|ugh|lol|because|bc)\b/gi, " ")
+        .replace(/[^\p{L}\p{N}' ]+/gu, " ")
+        .replace(/\s+/g, " ")
+        .trim();
+      items.push({
+        ...blank(),
+        kind: "cancel",
+        title: name || clause,
+        date: y && mo && dd && hit ? `${y}-${String(mo).padStart(2, "0")}-${String(dd).padStart(2, "0")}` : null,
+        start: when?.isCertain("hour") ? hhmm(when.get("hour")! * 60 + (when.get("minute") ?? 0)) : null,
+      });
+      continue;
+    }
+
     const priority = HIGH.test(clause) ? "high" : LOW.test(clause) ? "low" : null;
     const hours = HOURS.exec(clause);
     const minutes = MINUTES.exec(clause);

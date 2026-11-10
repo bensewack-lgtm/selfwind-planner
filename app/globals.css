@@ -223,7 +223,7 @@ footer { padding: 32px 0 48px; color: var(--muted); font-size: 14px; border-top:
 
 /* ---------- Week grid ---------- */
 .week-scroll { overflow-x: auto; -webkit-overflow-scrolling: touch; }
-.week { min-width: 720px; }
+.week { min-width: 760px; }
 .week-head, .week-body { display: grid; grid-template-columns: 52px repeat(7, minmax(0, 1fr)); }
 .week-head { background: var(--card); padding-bottom: 8px; }
 .day-head { text-align: center; font-size: 13px; font-weight: 600; display: flex; flex-direction: column; line-height: 1.3; }
@@ -239,11 +239,21 @@ footer { padding: 32px 0 48px; color: var(--muted); font-size: 14px; border-top:
 }
 .day-col.is-today { background-color: #fdf9f4; }
 .ev {
-  position: absolute; left: 3px; right: 3px; border-radius: 7px; padding: 3px 6px;
-  font-size: 11.5px; line-height: 1.25; overflow: hidden; display: flex; flex-direction: column;
+  position: absolute; left: 2px; right: 2px; border-radius: 6px; padding: 2px 5px;
+  font-size: 12px; line-height: 14.5px; overflow: hidden; display: flex; flex-direction: column;
 }
-.ev strong { font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+/* Titles wrap onto as many lines as the item's height allows (--clamp is set per item). */
+.ev strong {
+  font-weight: 600; white-space: normal; overflow-wrap: anywhere; overflow: hidden;
+  display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: var(--clamp, 2); line-clamp: var(--clamp, 2);
+}
 .ev span { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; opacity: 0.85; }
+.ev-fixed.canceled {
+  background: repeating-linear-gradient(135deg, #f1eff6 0 6px, #e9e6f2 6px 12px); color: #8a85a3;
+  border-left-color: #c3bedb; opacity: 0.8;
+}
+.ev-fixed.canceled strong { text-decoration: line-through; }
+.canceled-tag { font-style: normal; text-decoration: none; display: inline-block; font-size: 10px; text-transform: uppercase; letter-spacing: 0.04em; }
 .ev-fixed { background: #e9e6f2; color: #403a5c; border-left: 3px solid #8a80b8; z-index: 1; }
 .ev-task { background: var(--accent-soft); color: #7a3814; border-left: 3px solid var(--accent); z-index: 2; }
 .ev-task.done { background: #e5f2e6; color: #2f6b3a; border-left-color: #4f9a5c; }
@@ -299,8 +309,8 @@ footer { padding: 32px 0 48px; color: var(--muted); font-size: 14px; border-top:
 .allday-label { font-size: 10.5px; color: var(--muted); text-align: right; padding-right: 8px; align-self: center; }
 .allday-cell { display: flex; flex-direction: column; gap: 3px; padding: 0 3px; min-width: 0; }
 .allday-chip {
-  font-size: 11px; font-weight: 600; padding: 2px 6px; border-radius: 6px;
-  background: #3c9a94; color: #fff; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+  font-size: 11.5px; font-weight: 600; line-height: 1.3; padding: 2px 6px; border-radius: 6px;
+  background: #3c9a94; color: #fff; overflow-wrap: anywhere;
 }
 .event-list { list-style: none; display: flex; flex-direction: column; }
 .event-list li { display: flex; justify-content: space-between; align-items: center; gap: 10px; padding: 10px 0; border-top: 1px solid var(--line); }
@@ -362,6 +372,9 @@ footer { padding: 32px 0 48px; color: var(--muted); font-size: 14px; border-top:
 .preview-card.kind-event { border-left-color: #3c9a94; }
 .preview-card.kind-task { border-left-color: var(--accent); }
 .preview-card.kind-commitment { border-left-color: #8a80b8; }
+.preview-card.kind-cancel { border-left-color: #a33a12; background: #fdf6f3; }
+.preview-card.kind-cancel .preview-body strong { text-decoration: line-through; text-decoration-color: rgba(163, 58, 18, 0.6); }
+.kind-cancel .preview-kind { color: #a33a12; }
 .preview-kind { font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.06em; }
 .kind-event .preview-kind { color: #2d7c77; }
 .kind-task .preview-kind { color: var(--accent); }
@@ -378,7 +391,7 @@ footer { padding: 32px 0 48px; color: var(--muted); font-size: 14px; border-top:
 .preview-problems li::before { content: "Heads up: "; font-weight: 600; }
 
 /* ---------- Clickable calendar items + notes window ---------- */
-button.ev { font: inherit; text-align: left; border: none; cursor: pointer; }
+button.ev { font: inherit; font-size: 12px; line-height: 14.5px; text-align: left; border: none; cursor: pointer; }
 button.ev.ev-task.unconfirmed { border: 1px dashed var(--accent); border-left: 3px solid var(--accent); }
 button.ev:hover { filter: brightness(0.96); box-shadow: 0 1px 4px rgba(0,0,0,0.12); z-index: 5; }
 button.ev:focus-visible, .allday-chip:focus-visible, .due-marker button:focus-visible, .month-item:focus-visible {
@@ -421,6 +434,8 @@ button.allday-chip { font-family: inherit; border: none; cursor: pointer; text-a
 .item-notes-form textarea:focus { outline: 2px solid var(--accent-soft); border-color: var(--accent); }
 .item-dialog-actions { display: flex; justify-content: flex-end; align-items: center; gap: 8px; margin-top: 6px; flex-wrap: wrap; }
 .item-dialog-actions .danger { margin-right: auto; color: #a33a12; }
+.item-dialog-actions .restore { margin-right: auto; color: var(--accent); font-weight: 600; }
+.item-notes-form .hint a { color: var(--accent); }
 
 /* ---------- Month calendar ---------- */
 .calendars { display: flex; flex-direction: column; gap: 18px; min-width: 0; }
@@ -443,7 +458,10 @@ button.allday-chip { font-family: inherit; border: none; cursor: pointer; text-a
   font: inherit; font-size: 11.5px; line-height: 1.35; text-align: left; cursor: pointer;
   padding: 1px 5px; border-radius: 4px; border: none;
 }
-.month-item .m-title { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; }
+.month-item .m-title {
+  overflow: hidden; min-width: 0; overflow-wrap: anywhere;
+  display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 3; line-clamp: 3;
+}
 .month-item .m-time { font-weight: 700; flex-shrink: 0; }
 .m-event { background: #dcefee; color: #1d5552; }
 .m-due { background: #fbe4e1; color: #a12e22; }

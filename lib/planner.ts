@@ -1,11 +1,13 @@
 import "server-only";
 import { sql } from "./db";
 import { PLANS } from "./plans";
+import type { CancelContext } from "./quick-add";
 import {
   buildSchedule,
   effectiveFocus,
   learnFocus,
   learnPace,
+  skipKey,
   STEP,
   type Commitment,
   type Focus,
@@ -67,6 +69,7 @@ export type PlannerData = {
   prefs: PlannerPrefs;
   commitments: CommitmentRow[];
   events: EventView[]; // from the start of today through the planning window
+  skips: string[]; // canceled class days, as skipKey(commitmentId, dayStart)
   tasks: TaskView[];
   blocks: BlockView[]; // this week (today + 6 days), plus any past unconfirmed blocks
   pace: PaceInsight;
@@ -175,6 +178,24 @@ export async function loadMonth(userId: string, now: number, requested?: string)
   };
 }
 
+/** Routine + upcoming events, for matching "X is canceled" in Just type it. */
+export async function getCancelContext(userId: string, now: number): Promise<CancelContext> {
+  const [commitments, eventRows] = await Promise.all([
+    getCommitments(userId),
+    sql()`
+      SELECT id::text AS id, title, all_day,
+             to_char(start_at, 'YYYY-MM-DD HH24:MI') AS start, to_char(end_at, 'YYYY-MM-DD HH24:MI') AS end
+      FROM events
+      WHERE user_id = ${userId} AND end_at > ${toSqlTimestamp(now)} AND start_at < ${toSqlTimestamp(now + 120 * DAY)}
+      ORDER BY start_at LIMIT 60
+    `,
+  ]);
+  return {
+    commitments: commitments.map((c) => ({ id: c.id, title: c.title, day: c.day, start: c.start, end: c.end })),
+    events: eventRows.map((r) => ({ id: r.id, title: r.title, start: ts(r.start), end: ts(r.end), allDay: r.all_day })),
+  };
+}
+
 export async function getCommitments(userId: string): Promise<CommitmentRow[]> {
   const rows = await sql()`
     SELECT id::text AS id, title, day_of_week, start_min, end_min, notes
@@ -199,7 +220,7 @@ export async function loadPlanner(userId: string): Promise<PlannerData | null> {
 
   const weekStart = startOfDay(now);
 
-  const [commitments, taskRows, completedRows, historyRows, inProgressRows, eventRows] = await Promise.all([
+  const [commitments, taskRows, completedRows, historyRows, inProgressRows, eventRows, skipRows] = await Promise.all([
     getCommitments(userId),
     db`
       SELECT t.id::text AS id, t.title, t.notes, to_char(t.due_at, 'YYYY-MM-DD HH24:MI') AS due,
@@ -235,7 +256,14 @@ export async function loadPlanner(userId: string): Promise<PlannerData | null> {
         AND start_at < ${toSqlTimestamp(weekStart + PLAN_DAYS * DAY)}
       ORDER BY start_at
     `,
+    db`
+      SELECT commitment_id::text AS id, to_char(day, 'YYYY-MM-DD') AS day FROM commitment_skips
+      WHERE user_id = ${userId} AND day >= ${toSqlTimestamp(weekStart)}::date
+        AND day < ${toSqlTimestamp(weekStart + PLAN_DAYS * DAY)}::date
+    `,
   ]);
+
+  const skips = skipRows.map((r) => skipKey(r.id, parseLocal(`${r.day}T00:00`)));
 
   const events: EventView[] = eventRows.map((r) => ({
     id: r.id,
@@ -277,6 +305,7 @@ export async function loadPlanner(userId: string): Promise<PlannerData | null> {
     commitments,
     // Timed events are busy time; all-day ones (birthdays, holidays) aren't.
     busy: [...inProgress, ...events.filter((e) => !e.allDay)],
+    skips: new Set(skips),
     tasks: tasks.filter((t) => t.due > now).map((t) => ({ id: t.id, due: t.due, remaining: t.remaining, priority: t.priority })),
     days: PLAN_DAYS,
   });
@@ -325,6 +354,7 @@ export async function loadPlanner(userId: string): Promise<PlannerData | null> {
     prefs,
     commitments,
     events,
+    skips,
     tasks: tasks.map(({ remaining: _r, ...t }) => ({
       ...t,
       plannedMin: planned.filter((b) => b.taskId === t.id).reduce((n, b) => n + (b.end - b.start), 0),

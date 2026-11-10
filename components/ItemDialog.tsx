@@ -1,9 +1,10 @@
 "use client";
 
+import Link from "next/link";
 import { createContext, useActionState, useCallback, useContext, useEffect, useRef, useState } from "react";
-import { deleteEvent, saveNotes } from "@/app/actions/planner";
+import { deleteEvent, deleteTask, restoreCommitmentDay, saveNotes, skipCommitmentDay } from "@/app/actions/planner";
 import { MAX_NOTES, type CalItem } from "@/lib/calendar-items";
-import { DAY_NAMES, formatClock, formatDay, formatDue, formatRange } from "@/lib/time";
+import { DAY_NAMES, formatClock, formatDay, formatDue, formatRange, toLocalString } from "@/lib/time";
 
 const OpenItem = createContext<(item: CalItem) => void>(() => {});
 
@@ -42,9 +43,9 @@ function describe(item: CalItem, now: number) {
           };
     case "commitment":
       return {
-        label: "Every week",
-        when: `${item.days.map((d) => DAY_NAMES[d]).join(", ")} · ${formatClock(item.start)} – ${formatClock(item.end % 1440)}`,
-        extra: null,
+        label: item.canceled ? "Canceled this day" : "Class / routine",
+        when: `${formatDay(item.date, LONG_DAY)} · ${formatClock(item.start)} – ${formatClock(item.end % 1440)}`,
+        extra: `Every ${item.days.map((d) => DAY_NAMES[d]).join(", ")}`,
         notesLabel: "Notes for this class or commitment (shared across all its days)",
         placeholder: "e.g. room 105 Willard, professor's office hours Wed 2–3",
       };
@@ -55,6 +56,13 @@ function NotesForm({ item, now, onDone }: { item: CalItem; now: number; onDone: 
   const [state, action, pending] = useActionState(saveNotes, undefined);
   const [text, setText] = useState(item.notes ?? "");
   const d = describe(item, now);
+
+  /** Run a delete/cancel action from this form (after an optional confirm), then close. */
+  const run = (fn: (fd: FormData) => Promise<void>, question?: string) => async (fd: FormData) => {
+    if (question && !confirm(question)) return;
+    await fn(fd);
+    onDone();
+  };
 
   useEffect(() => {
     if (state?.ok) {
@@ -75,6 +83,7 @@ function NotesForm({ item, now, onDone }: { item: CalItem; now: number; onDone: 
       <form action={action} className="item-notes-form">
         <input type="hidden" name="kind" value={item.kind} />
         <input type="hidden" name="id" value={item.id} />
+        {item.kind === "commitment" && <input type="hidden" name="date" value={toLocalString(item.date).slice(0, 10)} />}
         <label htmlFor="item-notes">{d.notesLabel}</label>
         <textarea
           id="item-notes"
@@ -103,18 +112,36 @@ function NotesForm({ item, now, onDone }: { item: CalItem; now: number; onDone: 
         )}
         <div className="item-dialog-actions">
           {item.kind === "event" && (
-            <button
-              type="submit"
-              formAction={async (fd) => {
-                if (!confirm(`Delete “${item.title}” from your calendar?`)) return;
-                await deleteEvent(fd);
-                onDone();
-              }}
-              className="btn btn-text danger"
-            >
+            <button type="submit" formAction={run(deleteEvent, `Delete “${item.title}” from your calendar?`)} className="btn btn-text danger">
               Delete event
             </button>
           )}
+          {item.kind === "task" && (
+            <button
+              type="submit"
+              formAction={run(deleteTask, `Delete the assignment “${item.title}” and all its study sessions?`)}
+              className="btn btn-text danger"
+            >
+              Delete assignment
+            </button>
+          )}
+          {item.kind === "commitment" &&
+            (item.canceled ? (
+              <button type="submit" formAction={run(restoreCommitmentDay)} className="btn btn-text restore">
+                Restore {formatDay(item.date, { weekday: "short", month: "short", day: "numeric" })}
+              </button>
+            ) : (
+              <button
+                type="submit"
+                formAction={run(
+                  skipCommitmentDay,
+                  `Cancel “${item.title}” on ${formatDay(item.date, LONG_DAY)} only? It stays on every other week.`,
+                )}
+                className="btn btn-text danger"
+              >
+                Cancel this day only
+              </button>
+            ))}
           <button type="button" className="btn btn-ghost" onClick={onDone}>
             Close
           </button>
@@ -122,6 +149,11 @@ function NotesForm({ item, now, onDone }: { item: CalItem; now: number; onDone: 
             {pending ? "Saving…" : "Save notes"}
           </button>
         </div>
+        {item.kind === "commitment" && (
+          <p className="hint">
+            To drop it every week, remove it in <Link href="/planner/setup">Routine &amp; preferences</Link>.
+          </p>
+        )}
       </form>
     </>
   );

@@ -157,4 +157,17 @@ await sql`ALTER TABLE events ADD COLUMN IF NOT EXISTS notes text`;
 await sql`ALTER TABLE tasks ADD COLUMN IF NOT EXISTS notes text`;
 await sql`ALTER TABLE commitments ADD COLUMN IF NOT EXISTS notes text`;
 
+// One-day cancellations of a weekly commitment ("no class on Thursday").
+// The class stays in the routine; just that date is skipped.
+await sql.query(`
+  CREATE TABLE IF NOT EXISTS commitment_skips (
+    commitment_id bigint NOT NULL REFERENCES commitments(id) ON DELETE CASCADE,
+    user_id       ${userIdType} NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    day           date NOT NULL,
+    created_at    timestamptz NOT NULL DEFAULT now(),
+    PRIMARY KEY (commitment_id, day)
+  )
+`);
+await sql`CREATE INDEX IF NOT EXISTS commitment_skips_user_day_idx ON commitment_skips (user_id, day)`;
+
 console.log("migrate: users, sessions and planner tables are ready.");

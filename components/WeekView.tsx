@@ -2,11 +2,20 @@
 
 import { NotesMark, useOpenItem } from "@/components/ItemDialog";
 import type { BlockView, CommitmentRow, EventView } from "@/lib/planner";
+import { skipKey } from "@/lib/scheduler";
 import { DAY, dayOfWeek, formatClock, formatDay, formatDue, formatRange, minuteOfDay, startOfDay } from "@/lib/time";
 
 type Deadline = { id: string; title: string; due: number; notes: string | null };
 
-const PX_PER_MIN = 0.8;
+const PX_PER_MIN = 1.1; // 66px per hour: room for a two-line title on a 30-minute item
+const LINE = 14.5; // px per line of item text
+
+/** How many lines of title fit in an item this tall, and whether the time line fits too. */
+function fit(heightPx: number) {
+  const lines = Math.max(1, Math.floor((heightPx - 4) / LINE + 0.02)); // 4px = top + bottom padding
+  const showTime = lines >= 3;
+  return { showTime, style: { ["--clamp" as string]: String(showTime ? lines - 1 : lines) } };
+}
 
 export default function WeekView({
   now,
@@ -16,6 +25,7 @@ export default function WeekView({
   blocks,
   events,
   deadlines,
+  skips,
 }: {
   now: number;
   dayStart: number;
@@ -24,8 +34,10 @@ export default function WeekView({
   blocks: BlockView[];
   events: EventView[];
   deadlines: Deadline[];
+  skips: string[];
 }) {
   const open = useOpenItem();
+  const skipped = new Set(skips);
   const taskById = new Map(deadlines.map((d) => [d.id, d]));
   const today = startOfDay(now);
   const days = Array.from({ length: 7 }, (_, i) => today + i * DAY);
@@ -118,64 +130,80 @@ export default function WeekView({
               <div key={d} className={i === 0 ? "day-col is-today" : "day-col"}>
                 {commitments
                   .filter((c) => c.day === dow)
-                  .map((c) => (
+                  .map((c) => {
+                    const canceled = skipped.has(skipKey(c.id, d));
+                    const h = (c.end - c.start) * PX_PER_MIN;
+                    const f = fit(h);
+                    return (
+                      <button
+                        key={`c${c.id}`}
+                        type="button"
+                        className={canceled ? "ev ev-fixed canceled" : "ev ev-fixed"}
+                        style={{ top: y(c.start), height: h, ...f.style }}
+                        title={`${c.title} · ${formatClock(c.start)} – ${formatClock(c.end % 1440)}${canceled ? " · canceled this day" : ""}`}
+                        onClick={() =>
+                          open({
+                            kind: "commitment",
+                            id: c.id,
+                            title: c.title,
+                            // Notes are shared by every day this class meets, so show them all.
+                            days: commitments.filter((o) => o.title === c.title && o.start === c.start && o.end === c.end).map((o) => o.day),
+                            start: c.start,
+                            end: c.end,
+                            notes: c.notes,
+                            date: d,
+                            canceled,
+                          })
+                        }
+                      >
+                        <strong>
+                          {canceled && <em className="canceled-tag">Canceled </em>}
+                          {c.title}
+                          <NotesMark notes={c.notes} />
+                        </strong>
+                        {f.showTime && <span>{formatClock(c.start)}</span>}
+                      </button>
+                    );
+                  })}
+                {timedFor(d).map((e) => {
+                  const h = Math.max(20, (e.segEnd - e.segStart) * PX_PER_MIN);
+                  const f = fit(h);
+                  return (
                     <button
-                      key={`c${c.id}`}
+                      key={`e${e.id}`}
                       type="button"
-                      className="ev ev-fixed"
-                      style={{ top: y(c.start), height: (c.end - c.start) * PX_PER_MIN }}
-                      title={`${c.title} · ${formatClock(c.start)} – ${formatClock(c.end % 1440)}`}
-                      onClick={() =>
-                        open({
-                          kind: "commitment",
-                          id: c.id,
-                          title: c.title,
-                          // Notes are shared by every day this class meets, so show them all.
-                          days: commitments.filter((o) => o.title === c.title && o.start === c.start && o.end === c.end).map((o) => o.day),
-                          start: c.start,
-                          end: c.end,
-                          notes: c.notes,
-                        })
-                      }
+                      className="ev ev-event"
+                      style={{ top: y(e.segStart - d), height: h, ...f.style }}
+                      title={`${e.title} · ${formatRange(e.start, e.end)}${e.location ? ` · ${e.location}` : ""}`}
+                      onClick={() => openEvent(e)}
                     >
                       <strong>
-                        {c.title}
-                        <NotesMark notes={c.notes} />
+                        {e.title}
+                        <NotesMark notes={e.notes} />
                       </strong>
-                      <span>{formatClock(c.start)}</span>
+                      {f.showTime && (
+                        <span>
+                          {formatClock(minuteOfDay(e.start))}
+                          {e.location ? ` · ${e.location}` : ""}
+                        </span>
+                      )}
                     </button>
-                  ))}
-                {timedFor(d).map((e) => (
-                  <button
-                    key={`e${e.id}`}
-                    type="button"
-                    className="ev ev-event"
-                    style={{ top: y(e.segStart - d), height: Math.max(18, (e.segEnd - e.segStart) * PX_PER_MIN) }}
-                    title={`${e.title} · ${formatRange(e.start, e.end)}${e.location ? ` · ${e.location}` : ""}`}
-                    onClick={() => openEvent(e)}
-                  >
-                    <strong>
-                      {e.title}
-                      <NotesMark notes={e.notes} />
-                    </strong>
-                    <span>
-                      {formatClock(minuteOfDay(e.start))}
-                      {e.location ? ` · ${e.location}` : ""}
-                    </span>
-                  </button>
-                ))}
+                  );
+                })}
                 {weekBlocks
                   .filter((b) => startOfDay(b.start) === d)
                   .map((b) => {
                     const unconfirmed = b.status === "planned" && b.end <= now;
                     const cls = unconfirmed ? "unconfirmed" : b.status;
                     const task = taskById.get(b.taskId);
+                    const h = (b.end - b.start) * PX_PER_MIN;
+                    const f = fit(h);
                     return (
                       <button
                         key={`b${b.id}`}
                         type="button"
                         className={`ev ev-task ${cls}`}
-                        style={{ top: y(minuteOfDay(b.start)), height: (b.end - b.start) * PX_PER_MIN }}
+                        style={{ top: y(minuteOfDay(b.start)), height: h, ...f.style }}
                         title={`Work session: ${b.title} · ${formatRange(b.start, b.end)}${
                           task ? ` · due ${formatDue(task.due, now)}` : ""
                         }${b.status !== "planned" ? ` · ${b.status}` : ""}`}
@@ -194,7 +222,7 @@ export default function WeekView({
                           {b.title}
                           <NotesMark notes={task?.notes ?? null} />
                         </strong>
-                        <span>{formatRange(b.start, b.end)}</span>
+                        {f.showTime && <span>{formatRange(b.start, b.end)}</span>}
                       </button>
                     );
                   })}

@@ -14,4 +14,14 @@ export type CalItem =
       session?: { start: number; end: number; status: "planned" | "done" | "missed" }; // set when a study session was clicked
       done?: boolean;
     }
-  | { kind: "commitment"; id: string; title: string; days: number[]; start: number; end: number; notes: string | null };
+  | {
+      kind: "commitment";
+      id: string;
+      title: string;
+      days: number[];
+      start: number; // minute of day
+      end: number;
+      notes: string | null;
+      date: number; // the day that was clicked (local minutes, start of day)
+      canceled: boolean; // that day is canceled
+    };
