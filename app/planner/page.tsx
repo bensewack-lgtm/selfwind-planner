@@ -43,6 +43,11 @@ export default async function PlannerPage() {
             <span className={user.hasPaid ? "plan-pill paid" : "plan-pill"}>
               {user.hasPaid ? "Paid plan · unlimited" : `Free plan · ${tasks.length}/${FREE_TASK_LIMIT} assignments`}
             </span>
+            {!user.hasPaid && (
+              <Link href="/premium" className="btn btn-primary">
+                Upgrade
+              </Link>
+            )}
             <Link href="/planner/setup" className="btn btn-ghost">
               Routine &amp; preferences
             </Link>

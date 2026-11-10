@@ -5,11 +5,12 @@ import { redirect } from "next/navigation";
 import { aiAvailable, readQuickAdd, type QuickAddSource } from "@/lib/ai";
 import { sql } from "@/lib/db";
 import { FREE_TASK_LIMIT, getPrefs } from "@/lib/planner";
+import { PLANS } from "@/lib/plans";
 import { isProblem, MAX_INPUT_CHARS, MAX_ITEMS, validateItem, type QuickItem } from "@/lib/quick-add";
 import { getCurrentUser, type User } from "@/lib/session";
 import { hhmmToMinutes, isValidTimeZone, nowLocal, parseLocal, toSqlTimestamp } from "@/lib/time";
 
-export type FormState = { error?: string; ok?: string } | undefined;
+export type FormState = { error?: string; ok?: string; upgrade?: boolean } | undefined;
 
 async function requireUser(): Promise<User> {
   const user = await getCurrentUser();
@@ -117,7 +118,10 @@ export async function addTask(_prev: FormState, fd: FormData): Promise<FormState
   if (!user.hasPaid) {
     const [{ n }] = await sql()`SELECT count(*)::int AS n FROM tasks WHERE user_id = ${user.id} AND done_at IS NULL`;
     if (n >= FREE_TASK_LIMIT) {
-      return { error: `The free plan plans up to ${FREE_TASK_LIMIT} assignments at a time. Finish one, or upgrade for unlimited.` };
+      return {
+        error: `The free plan plans up to ${FREE_TASK_LIMIT} assignments at a time. Finish one, or upgrade to Premium for unlimited.`,
+        upgrade: true,
+      };
     }
   }
 
@@ -156,7 +160,7 @@ export async function deleteTask(fd: FormData) {
 
 // ---- Just type it ----
 
-const DAILY_QUICK_ADDS = { free: 20, paid: 100 };
+const DAILY_QUICK_ADDS = { free: PLANS.free.dailyQuickAdds, paid: PLANS.premium.dailyQuickAdds };
 
 export type QuickAddState =
   | { stage: "preview"; text: string; items: QuickItem[]; problems: string[]; now: number; source: QuickAddSource }

@@ -1,5 +1,6 @@
 import "server-only";
 import { sql } from "./db";
+import { PLANS } from "./plans";
 import {
   buildSchedule,
   effectiveFocus,
@@ -13,7 +14,7 @@ import {
 } from "./scheduler";
 import { DAY, nowLocal, parseLocal, roundUpTo, startOfDay, toSqlTimestamp } from "./time";
 
-export const FREE_TASK_LIMIT = 5;
+export const FREE_TASK_LIMIT = PLANS.free.taskLimit;
 const PLAN_DAYS = 14;
 const WEEK_DAYS = 7;
 

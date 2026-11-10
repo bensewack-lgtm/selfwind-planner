@@ -1,10 +1,24 @@
 "use client";
 
+import Link from "next/link";
 import { useActionState, useEffect, useRef, useState } from "react";
 import { addCommitment, addEvent, addTask, savePreferences, type FormState } from "@/app/actions/planner";
 
 function Message({ state }: { state: FormState }) {
-  if (state?.error) return <p className="form-error" role="alert">{state.error}</p>;
+  if (state?.error)
+    return (
+      <p className="form-error" role="alert">
+        {state.error}
+        {state.upgrade && (
+          <>
+            {" "}
+            <Link href="/premium" className="upgrade-link">
+              See Premium
+            </Link>
+          </>
+        )}
+      </p>
+    );
   if (state?.ok) return <p className="form-ok" role="status">{state.ok}</p>;
   return null;
 }

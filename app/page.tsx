@@ -1,5 +1,6 @@
 import Link from "next/link";
 import SiteHeader from "@/components/SiteHeader";
+import { formatPrice, PLANS } from "@/lib/plans";
 import { getCurrentUser } from "@/lib/session";
 
 const steps = [
@@ -173,6 +174,11 @@ export default async function Home() {
               <strong>Think of it this way:</strong> if it saves you even two hours a week,
               that&apos;s more than 30 hours back over a semester.
             </p>
+            <div className="hero-cta">
+              <Link href="/premium" className="btn btn-primary">
+                See Premium · {formatPrice(PLANS.premium.priceUsd)}/month
+              </Link>
+            </div>
           </div>
         </section>
 

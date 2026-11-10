@@ -21,7 +21,18 @@ export default async function AccountPage() {
             <dt>Email</dt>
             <dd>{user.email}</dd>
             <dt>Plan</dt>
-            <dd>{user.hasPaid ? "Paid" : "Free"}</dd>
+            <dd>
+              {user.hasPaid ? (
+                "Premium"
+              ) : (
+                <>
+                  Free ·{" "}
+                  <Link href="/premium" className="upgrade-link">
+                    Upgrade to Premium
+                  </Link>
+                </>
+              )}
+            </dd>
           </dl>
           <div className="account-actions">
             <Link href="/planner" className="btn btn-primary">
