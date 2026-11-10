@@ -1,7 +1,10 @@
+"use client";
+
+import { NotesMark, useOpenItem } from "@/components/ItemDialog";
 import type { BlockView, CommitmentRow, EventView } from "@/lib/planner";
 import { DAY, dayOfWeek, formatClock, formatDay, formatDue, formatRange, minuteOfDay, startOfDay } from "@/lib/time";
 
-type Deadline = { id: string; title: string; due: number };
+type Deadline = { id: string; title: string; due: number; notes: string | null };
 
 const PX_PER_MIN = 0.8;
 
@@ -22,7 +25,8 @@ export default function WeekView({
   events: EventView[];
   deadlines: Deadline[];
 }) {
-  const dueById = new Map(deadlines.map((d) => [d.id, d.due]));
+  const open = useOpenItem();
+  const taskById = new Map(deadlines.map((d) => [d.id, d]));
   const today = startOfDay(now);
   const days = Array.from({ length: 7 }, (_, i) => today + i * DAY);
   const weekBlocks = blocks.filter((b) => b.start >= today && b.start < today + 7 * DAY);
@@ -63,6 +67,9 @@ export default function WeekView({
   const hours = Array.from({ length: (to - from) / 60 }, (_, i) => from + i * 60);
   const y = (min: number) => (min - from) * PX_PER_MIN;
 
+  const openEvent = (e: EventView) =>
+    open({ kind: "event", id: e.id, title: e.title, start: e.start, end: e.end, allDay: e.allDay, location: e.location, notes: e.notes });
+
   return (
     <div className="week-scroll">
       <div className="week" style={{ ["--hour" as string]: `${60 * PX_PER_MIN}px` }}>
@@ -81,9 +88,16 @@ export default function WeekView({
             {days.map((d) => (
               <div key={d} className="allday-cell">
                 {allDayFor(d).map((e) => (
-                  <span key={e.id} className="allday-chip" title={e.location ? `${e.title} · ${e.location}` : e.title}>
+                  <button
+                    key={e.id}
+                    type="button"
+                    className="allday-chip"
+                    title={e.location ? `${e.title} · ${e.location}` : e.title}
+                    onClick={() => openEvent(e)}
+                  >
                     {e.title}
-                  </span>
+                    <NotesMark notes={e.notes} />
+                  </button>
                 ))}
               </div>
             ))}
@@ -105,59 +119,97 @@ export default function WeekView({
                 {commitments
                   .filter((c) => c.day === dow)
                   .map((c) => (
-                    <div
+                    <button
                       key={`c${c.id}`}
+                      type="button"
                       className="ev ev-fixed"
                       style={{ top: y(c.start), height: (c.end - c.start) * PX_PER_MIN }}
-                      title={`${c.title} · ${formatClock(c.start)} – ${formatClock(c.end)}`}
+                      title={`${c.title} · ${formatClock(c.start)} – ${formatClock(c.end % 1440)}`}
+                      onClick={() =>
+                        open({
+                          kind: "commitment",
+                          id: c.id,
+                          title: c.title,
+                          // Notes are shared by every day this class meets, so show them all.
+                          days: commitments.filter((o) => o.title === c.title && o.start === c.start && o.end === c.end).map((o) => o.day),
+                          start: c.start,
+                          end: c.end,
+                          notes: c.notes,
+                        })
+                      }
                     >
-                      <strong>{c.title}</strong>
+                      <strong>
+                        {c.title}
+                        <NotesMark notes={c.notes} />
+                      </strong>
                       <span>{formatClock(c.start)}</span>
-                    </div>
+                    </button>
                   ))}
                 {timedFor(d).map((e) => (
-                  <div
+                  <button
                     key={`e${e.id}`}
+                    type="button"
                     className="ev ev-event"
                     style={{ top: y(e.segStart - d), height: Math.max(18, (e.segEnd - e.segStart) * PX_PER_MIN) }}
                     title={`${e.title} · ${formatRange(e.start, e.end)}${e.location ? ` · ${e.location}` : ""}`}
+                    onClick={() => openEvent(e)}
                   >
-                    <strong>{e.title}</strong>
+                    <strong>
+                      {e.title}
+                      <NotesMark notes={e.notes} />
+                    </strong>
                     <span>
                       {formatClock(minuteOfDay(e.start))}
                       {e.location ? ` · ${e.location}` : ""}
                     </span>
-                  </div>
+                  </button>
                 ))}
                 {weekBlocks
                   .filter((b) => startOfDay(b.start) === d)
                   .map((b) => {
                     const unconfirmed = b.status === "planned" && b.end <= now;
                     const cls = unconfirmed ? "unconfirmed" : b.status;
+                    const task = taskById.get(b.taskId);
                     return (
-                      <div
+                      <button
                         key={`b${b.id}`}
+                        type="button"
                         className={`ev ev-task ${cls}`}
                         style={{ top: y(minuteOfDay(b.start)), height: (b.end - b.start) * PX_PER_MIN }}
                         title={`Work session: ${b.title} · ${formatRange(b.start, b.end)}${
-                          dueById.has(b.taskId) ? ` · due ${formatDue(dueById.get(b.taskId)!, now)}` : ""
+                          task ? ` · due ${formatDue(task.due, now)}` : ""
                         }${b.status !== "planned" ? ` · ${b.status}` : ""}`}
+                        onClick={() =>
+                          open({
+                            kind: "task",
+                            id: b.taskId,
+                            title: b.title,
+                            due: task?.due ?? null,
+                            notes: task?.notes ?? null,
+                            session: { start: b.start, end: b.end, status: b.status },
+                          })
+                        }
                       >
-                        <strong>{b.title}</strong>
+                        <strong>
+                          {b.title}
+                          <NotesMark notes={task?.notes ?? null} />
+                        </strong>
                         <span>{formatRange(b.start, b.end)}</span>
-                      </div>
+                      </button>
                     );
                   })}
                 {weekDeadlines
                   .filter((t) => startOfDay(t.due) === d)
                   .map((t) => (
-                    <div
-                      key={`d${t.id}`}
-                      className="due-marker"
-                      style={{ top: y(minuteOfDay(t.due)) }}
-                      title={`${t.title} is due ${formatClock(minuteOfDay(t.due))}`}
-                    >
-                      <span>Due {formatClock(minuteOfDay(t.due))}: {t.title}</span>
+                    <div key={`d${t.id}`} className="due-marker" style={{ top: y(minuteOfDay(t.due)) }}>
+                      <button
+                        type="button"
+                        title={`${t.title} is due ${formatClock(minuteOfDay(t.due))}`}
+                        onClick={() => open({ kind: "task", id: t.id, title: t.title, due: t.due, notes: t.notes })}
+                      >
+                        Due {formatClock(minuteOfDay(t.due))}: {t.title}
+                        <NotesMark notes={t.notes} />
+                      </button>
                     </div>
                   ))}
                 {i === 0 && nowY >= 0 && nowY <= height && <div className="now-line" style={{ top: nowY }} />}

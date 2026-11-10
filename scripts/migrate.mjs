@@ -152,4 +152,9 @@ await sql.query(`
 `);
 await sql`CREATE INDEX IF NOT EXISTS quick_adds_user_time_idx ON quick_adds (user_id, created_at)`;
 
+// Free-form notes the student adds by clicking an item on the calendar.
+await sql`ALTER TABLE events ADD COLUMN IF NOT EXISTS notes text`;
+await sql`ALTER TABLE tasks ADD COLUMN IF NOT EXISTS notes text`;
+await sql`ALTER TABLE commitments ADD COLUMN IF NOT EXISTS notes text`;
+
 console.log("migrate: users, sessions and planner tables are ready.");

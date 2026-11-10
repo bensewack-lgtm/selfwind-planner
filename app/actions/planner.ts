@@ -5,6 +5,7 @@ import { redirect } from "next/navigation";
 import { aiAvailable, readQuickAdd, type QuickAddSource } from "@/lib/ai";
 import { sql } from "@/lib/db";
 import { FREE_TASK_LIMIT, getPrefs } from "@/lib/planner";
+import { MAX_NOTES } from "@/lib/calendar-items";
 import { PLANS } from "@/lib/plans";
 import { isProblem, MAX_INPUT_CHARS, MAX_ITEMS, validateItem, type QuickItem } from "@/lib/quick-add";
 import { getCurrentUser, type User } from "@/lib/session";
@@ -317,6 +318,41 @@ export async function deleteEvent(fd: FormData) {
   const id = idFrom(fd);
   if (id) await sql()`DELETE FROM events WHERE id = ${id} AND user_id = ${user.id}`;
   refresh();
+}
+
+// ---- Notes ----
+
+/** Save the notes on a calendar item. Study sessions save to their assignment; a class's notes apply to all its days. */
+export async function saveNotes(_prev: FormState, fd: FormData): Promise<FormState> {
+  const user = await requireUser();
+  const id = idFrom(fd);
+  const kind = str(fd, "kind");
+  const raw = String(fd.get("notes") ?? "").replace(/\r\n/g, "\n").trim();
+  if (!id) return { error: "Something went wrong. Close this and try again." };
+  if (raw.length > MAX_NOTES) return { error: `Notes can be up to ${MAX_NOTES} characters (yours are ${raw.length}).` };
+  const notes = raw || null;
+  const db = sql();
+
+  let rows: Record<string, unknown>[];
+  if (kind === "event") {
+    rows = await db`UPDATE events SET notes = ${notes} WHERE id = ${id} AND user_id = ${user.id} RETURNING id`;
+  } else if (kind === "task") {
+    rows = await db`UPDATE tasks SET notes = ${notes} WHERE id = ${id} AND user_id = ${user.id} RETURNING id`;
+  } else if (kind === "commitment") {
+    rows = await db`
+      UPDATE commitments c SET notes = ${notes}
+      FROM commitments src
+      WHERE src.id = ${id} AND src.user_id = ${user.id}
+        AND c.user_id = src.user_id AND c.title = src.title AND c.start_min = src.start_min AND c.end_min = src.end_min
+      RETURNING c.id
+    `;
+  } else {
+    return { error: "Something went wrong. Close this and try again." };
+  }
+  if (rows.length === 0) return { error: "That item doesn't exist any more. It may have been deleted." };
+
+  refresh();
+  return { ok: notes ? "Notes saved." : "Notes cleared." };
 }
 
 // ---- Sessions ----

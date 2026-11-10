@@ -5,8 +5,10 @@ import { completeTask, deleteEvent, deleteTask, setBlockStatus } from "@/app/act
 import { ManualAdd } from "@/components/PlannerForms";
 import QuickAdd from "@/components/QuickAdd";
 import SiteHeader from "@/components/SiteHeader";
+import ItemDialogProvider from "@/components/ItemDialog";
+import MonthView from "@/components/MonthView";
 import WeekView from "@/components/WeekView";
-import { FREE_TASK_LIMIT, loadPlanner, type PlannerData, type TaskView } from "@/lib/planner";
+import { FREE_TASK_LIMIT, loadMonth, loadPlanner, type PlannerData, type TaskView } from "@/lib/planner";
 import { getCurrentUser } from "@/lib/session";
 import { DAY, formatDay, formatDue, formatDuration, formatRange, startOfDay, toLocalString } from "@/lib/time";
 
@@ -14,11 +16,13 @@ export const metadata: Metadata = { title: "Your week · Selfwind Planner" };
 
 const PERIOD_LABEL = { morning: "morning", afternoon: "afternoon", evening: "evening", any: "any time" } as const;
 
-export default async function PlannerPage() {
+export default async function PlannerPage({ searchParams }: { searchParams: Promise<{ month?: string | string[] }> }) {
   const user = await getCurrentUser();
   if (!user) redirect("/login");
   const data = await loadPlanner(user.id);
   if (!data) redirect("/planner/setup");
+  const { month: monthParam } = await searchParams;
+  const month = await loadMonth(user.id, data.now, typeof monthParam === "string" ? monthParam : undefined);
 
   const { now, tasks, blocks } = data;
   const today = startOfDay(now);
@@ -58,7 +62,9 @@ export default async function PlannerPage() {
 
         <Insights data={data} plannedMin={plannedMin} sessions={weekPlanned.length} atRisk={atRisk.length} />
 
+        <ItemDialogProvider now={now}>
         <div className="planner-grid">
+          <div className="calendars">
           <section className="panel week-panel" aria-label="This week">
             {tasks.length === 0 && data.commitments.length === 0 && data.events.length === 0 ? (
               <EmptyWeek />
@@ -70,7 +76,7 @@ export default async function PlannerPage() {
                 commitments={data.commitments}
                 blocks={blocks}
                 events={data.events}
-                deadlines={tasks.map((t) => ({ id: t.id, title: t.title, due: t.due }))}
+                deadlines={tasks.map((t) => ({ id: t.id, title: t.title, due: t.due, notes: t.notes }))}
               />
             )}
             <div className="legend">
@@ -80,8 +86,12 @@ export default async function PlannerPage() {
               <span><i className="sw sw-due" />Assignment due</span>
               <span><i className="sw sw-done" />Done</span>
               <span><i className="sw sw-missed" />Missed (rescheduled)</span>
+              <span className="muted">Click anything for details and notes.</span>
             </div>
           </section>
+
+          <MonthView month={month} now={now} />
+          </div>
 
           <aside className="side">
             <TodayPanel data={data} />
@@ -107,6 +117,7 @@ export default async function PlannerPage() {
             </section>
           </aside>
         </div>
+        </ItemDialogProvider>
       </main>
     </>
   );
@@ -237,6 +248,7 @@ function EventsPanel({ data }: { data: PlannerData }) {
                 {formatDay(e.start)} · {e.allDay ? "All day" : formatRange(e.start, e.end)}
                 {e.location ? ` · ${e.location}` : ""}
               </span>
+              {e.notes && <span className="note-preview" title={e.notes}>✎ {e.notes}</span>}
             </div>
             <form action={deleteEvent}>
               <input type="hidden" name="id" value={e.id} />
@@ -269,6 +281,7 @@ function TaskItem({ task: t, now }: { task: TaskView; now: number }) {
           {t.neededMin !== t.estMin && <> (you guessed {formatDuration(t.estMin)})</>}
         </span>
       </div>
+      {t.notes && <p className="note-preview" title={t.notes}>✎ {t.notes}</p>}
       <div className="progress" aria-label={`${progress}% done`}>
         <span style={{ width: `${progress}%` }} />
       </div>
